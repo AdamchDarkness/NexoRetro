@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Configuration d'artefact SignPath « exe » (à copier dans le projet
+     « nexoretro » sur app.signpath.io). GitHub envoie un .zip qui contient
+     NexoRetro.exe : SignPath le signe (Authenticode) et le renvoie. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="NexoRetro.exe" product-name="Nexo Retro">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

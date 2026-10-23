@@ -9,6 +9,15 @@
 # l'installateur, la version portable et SHA256SUMS.txt (outils/creer-installateur.ps1),
 # puis publie une « Release » avec ces trois fichiers. Les notes de la
 # release sont le message du tag annoté.
+#
+# Signature (gratuite, SignPath Foundation pour les projets open source) :
+# si le secret SIGNPATH_API_TOKEN existe, NexoRetro.exe puis l'installateur
+# sont envoyés à SignPath, signés, et récupérés avant la publication. Sinon
+# la release est publiée sans signature, comme avant.
+#   Secret    SIGNPATH_API_TOKEN        jeton d'API de l'utilisateur CI SignPath
+#   Variable  SIGNPATH_ORGANIZATION_ID  identifiant de l'organisation SignPath
+#   (projet « nexoretro », politique « release-signing », configurations
+#    « exe » et « installer » : voir .signpath/)
 
 name: Release
 
@@ -24,13 +33,17 @@ permissions:
 jobs:
   release:
     runs-on: windows-2022
+    env:
+      # [GitHub] Un secret ne peut pas être testé directement dans un « if: » :
+      # on en fait une variable vrai/faux.
+      SIGNER: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
     defaults:
       run:
         shell: pwsh
 
     steps:
       - name: Récupérer le code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Le tag (v0.3.0) doit correspondre à project(NexoRetro VERSION 0.3.0)
       # de CMakeLists.txt : sinon les fichiers porteraient une autre version
@@ -53,6 +66,31 @@ jobs:
       - name: Compiler en Release
         run: cmake --build build --config Release --target emulateur --parallel
 
+      # --- Signature du programme (avant de l'emballer) ---
+      - name: Envoyer NexoRetro.exe à signer
+        id: exe-a-signer
+        if: env.SIGNER == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: exe-a-signer
+          path: build/Release/NexoRetro.exe
+          if-no-files-found: error
+
+      - name: Signer NexoRetro.exe (SignPath)
+        if: env.SIGNER == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: nexoretro
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: exe
+          github-artifact-id: ${{ steps.exe-a-signer.outputs.artifact-id }}
+          wait-for-completion: true
+          # L'exe signé remplace l'original : l'installateur et le zip
+          # portable embarqueront la version signée.
+          output-artifact-directory: build/Release
+
       - name: Installer Inno Setup (si absent)
         run: |
           $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
@@ -63,6 +101,43 @@ jobs:
 
       - name: Créer l'installateur, la version portable et SHA256SUMS.txt
         run: ./outils/creer-installateur.ps1 -SansCompiler
+
+      # --- Signature de l'installateur ---
+      - name: Envoyer l'installateur à signer
+        id: setup-a-signer
+        if: env.SIGNER == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: setup-a-signer
+          path: dist/NexoRetro-Setup-${{ steps.version.outputs.version }}.exe
+          if-no-files-found: error
+
+      - name: Signer l'installateur (SignPath)
+        if: env.SIGNER == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: nexoretro
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.setup-a-signer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist
+
+      # L'installateur signé n'a plus la même empreinte : on refait SHA256SUMS.txt.
+      - name: Recalculer SHA256SUMS.txt
+        if: env.SIGNER == 'true'
+        run: ./outils/creer-installateur.ps1 -EmpreintesSeules
+
+      - name: Vérifier les signatures
+        if: env.SIGNER == 'true'
+        run: |
+          foreach ($f in @("build/Release/NexoRetro.exe", "dist/NexoRetro-Setup-${{ steps.version.outputs.version }}.exe")) {
+            $sig = Get-AuthenticodeSignature $f
+            Write-Host "$f : $($sig.Status) ($($sig.SignerCertificate.Subject))"
+            if ($sig.Status -ne "Valid") { throw "$f n'est pas signé correctement" }
+          }
 
       - name: Publier la release
         env:

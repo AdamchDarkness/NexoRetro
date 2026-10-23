@@ -14,11 +14,13 @@
 #   -SansCompiler     ne recompile pas (l'exe est déjà dans build\Release : CI)
 #   -Cmake <chemin>   cmake.exe à utiliser (sinon celui du PATH)
 #   -Iscc <chemin>    ISCC.exe d'Inno Setup 6 (sinon cherché aux endroits connus)
+#   -EmpreintesSeules refait seulement SHA256SUMS.txt (après la signature : CI)
 
 param(
     [switch]$SansCompiler,
     [string]$Cmake = "",
-    [string]$Iscc = ""
+    [string]$Iscc = "",
+    [switch]$EmpreintesSeules
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,6 +33,24 @@ $ligne = Select-String -Path (Join-Path $projet "CMakeLists.txt") -Pattern "proj
 if (-not $ligne) { throw "Version introuvable dans CMakeLists.txt (project(NexoRetro VERSION x.y.z ...))" }
 $version = $ligne.Matches[0].Groups[1].Value
 Write-Host "Nexo Retro $version"
+$setup = Join-Path $dist "NexoRetro-Setup-$version.exe"
+$zip = Join-Path $dist "NexoRetro-$version-portable.zip"
+$sommes = Join-Path $dist "SHA256SUMS.txt"
+
+# Format de sha256sum : "<empreinte en minuscules>  <nom>" (deux espaces), fins
+# de ligne Unix, sans BOM : « sha256sum -c SHA256SUMS.txt » sait le vérifier.
+function Ecrire-Empreintes {
+    $lignes = foreach ($fichier in @($setup, $zip)) {
+        "{0}  {1}" -f (Get-FileHash $fichier -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $fichier -Leaf)
+    }
+    [IO.File]::WriteAllText($sommes, (($lignes -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+}
+
+if ($EmpreintesSeules) {
+    Ecrire-Empreintes
+    Get-Content $sommes
+    return
+}
 
 # --- 2. La compilation en Release -------------------------------------------
 if (-not $SansCompiler) {
@@ -62,9 +82,6 @@ if (-not $Iscc) {
 }
 
 New-Item -ItemType Directory -Force $dist | Out-Null
-$setup = Join-Path $dist "NexoRetro-Setup-$version.exe"
-$zip = Join-Path $dist "NexoRetro-$version-portable.zip"
-$sommes = Join-Path $dist "SHA256SUMS.txt"
 foreach ($ancien in @($setup, $zip, $sommes)) { if (Test-Path $ancien) { Remove-Item $ancien -Force } }
 
 # --- 4. L'installateur --------------------------------------------------------
@@ -88,12 +105,7 @@ Compress-Archive -Path (Join-Path $temp "*") -DestinationPath $zip -CompressionL
 Remove-Item $temp -Recurse -Force
 
 # --- 6. Les empreintes SHA-256 ---------------------------------------------------
-# Format de sha256sum : "<empreinte en minuscules>  <nom>" (deux espaces), fins
-# de ligne Unix, sans BOM : « sha256sum -c SHA256SUMS.txt » sait le vérifier.
-$lignes = foreach ($fichier in @($setup, $zip)) {
-    "{0}  {1}" -f (Get-FileHash $fichier -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $fichier -Leaf)
-}
-[IO.File]::WriteAllText($sommes, (($lignes -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+Ecrire-Empreintes
 
 Write-Host ""
 Write-Host "Fichiers prêts dans $dist :"

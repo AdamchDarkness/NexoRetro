@@ -555,6 +555,23 @@ To check the netcode itself, `tools/testcore/` contains a **perfectly determinis
 core (`netplay_test_libretro.dll`, 4 squares moved by the D-pad): the slightest input error shows
 up in its state checksum. Current results: 0 desyncs at 0, 30, 100 and 200 ms of simulated ping.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org).
+
+- Release builds are compiled by GitHub Actions from this repository
+  ([`.github/workflows/release.yml`](.github/workflows/release.yml)) when a version tag is pushed;
+  `NexoRetro.exe` and the installer are signed during that build. Nothing built elsewhere is signed.
+- Committers and reviewers: [AdamchDarkness](https://github.com/AdamchDarkness)
+- Approvers: [AdamchDarkness](https://github.com/AdamchDarkness)
+
+**Privacy policy**: Nexo Retro collects no personal data and has no analytics or telemetry. It only
+connects to other systems for features you use: GitHub (checking for Nexo Retro updates, which can
+be turned off in Settings → Updates), the libretro buildbot (downloading and updating cores),
+cover and game info sites (scraping, if enabled), the friends you play online with (direct
+peer-to-peer connection), and the Discord app on your own PC (Rich Presence, if enabled).
+
 ## License
 
 Nexo Retro is free software: you can redistribute it and/or modify it under the terms of the

@@ -557,6 +557,25 @@ déterministe** (`netplay_test_libretro.dll`, 4 carrés déplacés par la croix)
 touches se voit dans l'empreinte de son état. Résultats actuels : 0 désynchronisation à 0, 30, 100 et
 200 ms de ping simulé.
 
+## Politique de signature du code
+
+Signature de code gratuite fournie par [SignPath.io](https://about.signpath.io), certificat de la
+[SignPath Foundation](https://signpath.org).
+
+- Les versions publiées sont compilées par GitHub Actions à partir de ce dépôt
+  ([`.github/workflows/release.yml`](.github/workflows/release.yml)) à l'envoi d'un tag de version ;
+  `NexoRetro.exe` et l'installateur sont signés pendant cette compilation. Rien de compilé ailleurs
+  n'est signé.
+- Auteurs et relecteurs : [AdamchDarkness](https://github.com/AdamchDarkness)
+- Approbateurs : [AdamchDarkness](https://github.com/AdamchDarkness)
+
+**Vie privée** : Nexo Retro ne collecte aucune donnée personnelle, sans statistiques ni télémétrie.
+Il ne se connecte à d'autres systèmes que pour les fonctions que vous utilisez : GitHub (recherche
+des mises à jour de Nexo Retro, désactivable dans Paramètres → Mises à jour), le buildbot libretro
+(téléchargement et mise à jour des cores), les sites de jaquettes et d'informations (scraping, s'il
+est activé), les amis avec qui vous jouez en ligne (connexion directe de pair à pair) et l'appli
+Discord de votre PC (Rich Presence, si elle est activée).
+
 ## Licence
 
 Nexo Retro est un logiciel libre : vous pouvez le redistribuer et le modifier selon les termes de la
