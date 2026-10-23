@@ -1,0 +1,79 @@
+# Publication automatique d'une version de Nexo Retro.
+#
+# Déclenchée par l'envoi d'un tag de version :
+#
+#   git tag -a v0.3.0 -m "Notes de la version (affichées sur GitHub)"
+#   git push origin v0.3.0
+#
+# GitHub compile alors le programme sur une machine Windows, crée
+# l'installateur, la version portable et SHA256SUMS.txt (outils/creer-installateur.ps1),
+# puis publie une « Release » avec ces trois fichiers. Les notes de la
+# release sont le message du tag annoté.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# GITHUB_TOKEN doit pouvoir créer la release et y déposer les fichiers.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      # Le tag (v0.3.0) doit correspondre à project(NexoRetro VERSION 0.3.0)
+      # de CMakeLists.txt : sinon les fichiers porteraient une autre version
+      # que la release, et la mise à jour automatique se tromperait.
+      - name: Vérifier la version
+        id: version
+        run: |
+          $ligne = Select-String -Path CMakeLists.txt -Pattern "project\(NexoRetro VERSION (\d+\.\d+\.\d+)"
+          $version = $ligne.Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Le tag ${{ github.ref_name }} ne correspond pas à la version de CMakeLists.txt ($version)"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      # Sans le preset « windows » : il demande Visual Studio 2026, absent des
+      # machines de GitHub. Visual Studio 2022 compile le même code.
+      - name: Configurer (CMake, Visual Studio 2022)
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Compiler en Release
+        run: cmake --build build --config Release --target emulateur --parallel
+
+      - name: Installer Inno Setup (si absent)
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Installation d'Inno Setup impossible" }
+          }
+
+      - name: Créer l'installateur, la version portable et SHA256SUMS.txt
+        run: ./outils/creer-installateur.ps1 -SansCompiler
+
+      - name: Publier la release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          gh release create "${{ github.ref_name }}" `
+            "dist/NexoRetro-Setup-$version.exe" `
+            "dist/NexoRetro-$version-portable.zip" `
+            "dist/SHA256SUMS.txt" `
+            --title "Nexo Retro $version" `
+            --notes-from-tag `
+            --verify-tag
+          if ($LASTEXITCODE -ne 0) { throw "gh release create a échoué" }

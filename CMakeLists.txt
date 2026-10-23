@@ -10,6 +10,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Redistributable" (celui d'un ami, par exemple). Valable aussi pour SDL et
 # les autres bibliothèques compilées ici (déclaré avant elles).
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# Certaines bibliothèques (Opus) déclarent une très vieille version minimale de
+# CMake, qui ignore la ligne ci-dessus : elles seraient compilées avec le
+# runtime en DLL (/MD), d'où des conflits à l'édition de liens. La politique
+# CMP0091 « NEW » leur impose aussi notre choix.
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
 
 # --- SDL3 : fenêtre, rendu, son et manettes --------------------------------
 # Téléchargé et compilé automatiquement au premier "cmake", puis lié en

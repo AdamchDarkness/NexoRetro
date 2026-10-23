@@ -12,15 +12,68 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string_view>
+#include <system_error>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <shlobj.h> // SHGetKnownFolderPath : les dossiers spéciaux de Windows
 #endif
 
 namespace {
+
+namespace fs = std::filesystem;
+
+// Où ranger les données (cores/, bios/, roms/, saves/, settings.ini,
+// userdata.txt...) quand --data n'est pas donné.
+//
+// Deux cas, reconnus grâce à de petits fichiers « marqueurs » posés à côté
+// de NexoRetro.exe :
+//
+//  - copie INSTALLÉE (l'installateur écrit installed.txt) : le programme
+//    vit dans %LOCALAPPDATA%\Programs\NexoRetro, un dossier que les mises
+//    à jour remplacent. Les données vont donc ailleurs, dans
+//    %APPDATA%\NexoRetro, où une mise à jour ou une désinstallation ne les
+//    touche pas ;
+//  - copie PORTABLE (le .zip, ou une compilation de développement : aucun
+//    marqueur) : tout reste à côté de l'exécutable, comme avant. On peut
+//    emporter le dossier sur une clé USB.
+//
+// Un portable.txt à côté de l'exe force le mode portable, même dans une
+// copie installée (pour qui préfère tout garder au même endroit).
+fs::path defaultDataDir()
+{
+    const fs::path exeDir = fromUtf8(SDL_GetBasePath()); // dossier de l'exécutable
+#ifdef _WIN32
+    // [C++] std::error_code : la version de exists() qui ne lance pas
+    // d'exception en cas de problème (droits, disque débranché...) ; elle
+    // remplit simplement le code d'erreur, qu'on ignore ici (=> false).
+    std::error_code erreur;
+    const bool installee = fs::exists(exeDir / "installed.txt", erreur);
+    const bool portable = fs::exists(exeDir / "portable.txt", erreur);
+    if (installee && !portable) {
+        // FOLDERID_RoamingAppData = %APPDATA% (C:\Users\<nom>\AppData\Roaming).
+        // Windows alloue la chaîne : c'est à nous de la libérer (CoTaskMemFree).
+        PWSTR appData = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appData))) {
+            const fs::path dossier = fs::path(appData) / L"NexoRetro";
+            CoTaskMemFree(appData);
+            fs::create_directories(dossier, erreur); // créé au premier lancement
+            if (!erreur)
+                return dossier;
+        }
+        else {
+            CoTaskMemFree(appData); // sans effet sur nullptr, mais la règle est de toujours libérer
+        }
+        // Dossier introuvable ou impossible à créer : on retombe sur le
+        // comportement portable plutôt que de refuser de démarrer.
+    }
+#endif
+    return exeDir;
+}
 
 void printUsage()
 {
@@ -31,7 +84,8 @@ void printUsage()
         "        [--clavier | --manette N]   (deux émulateurs sur le même PC)\n"
         "\n"
         "Sans argument, ouvre la bibliothèque de jeux. Le dossier de données\n"
-        "(cores, bios, roms, saves) est par défaut celui de l'exécutable.");
+        "(cores, bios, roms, saves) est par défaut celui de l'exécutable, ou\n"
+        "%APPDATA%\\NexoRetro pour une copie installée (installed.txt).");
 }
 
 bool parseArgs(int argc, char** argv, AppOptions& out)
@@ -124,7 +178,7 @@ int main(int argc, char** argv)
         return 1;
     }
     if (options.dataDir.empty())
-        options.dataDir = fromUtf8(SDL_GetBasePath()); // dossier de l'exécutable
+        options.dataDir = defaultDataDir(); // à côté de l'exe, ou %APPDATA%\NexoRetro si installé
     // Une fenêtre qui n'écoute qu'une manette doit la lire même quand elle
     // n'est pas au premier plan (l'autre fenêtre a le clavier).
     if (options.inputSource == Input::Source::Gamepad)

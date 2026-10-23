@@ -30,3 +30,6 @@ pcsx2_bad_shader_*.txt
 
 # Notes et listes d'idées personnelles : jamais publiées
 IDEES*.md
+
+# Réglages locaux et copies de travail de Claude Code : jamais publiés
+.claude/

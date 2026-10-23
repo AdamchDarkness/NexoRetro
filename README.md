@@ -1,78 +1,115 @@
 # Nexo Retro
 
-**Nexo Retro** est un frontend d'émulation multi-consoles pour Windows, basé sur [libretro](https://www.libretro.com/),
-avec une interface claire et minimaliste : bibliothèque de jeux avec jaquettes, fiche de chaque jeu,
-BIOS reconnus à leur contenu, émulateurs installés en un clic, **jeu en ligne sans serveur avec
-rollback** (comme GGPO), chat vocal et câble link, retour en arrière, avance rapide, commandes
-réglables console par console, cores mis à jour tout seuls et « Joue à... » sur Discord. Interface
-en anglais, français, espagnol, portugais (Brésil), allemand, chinois simplifié, japonais, coréen et
-arabe.
+**English** · [Français](README.fr.md)
 
-**Consoles** : NES, Super Nintendo, Nintendo 64, Game Boy, Game Boy Color, Game Boy Advance, Nintendo
+> Free software released under the **GNU GPL v3** (see [LICENSE](LICENSE)).
+
+**Nexo Retro** is a multi-system emulation frontend for Windows, built on [libretro](https://www.libretro.com/),
+with a clean, minimalist interface: a game library with cover art, a page for every game, BIOS
+files recognized by their content, one-click emulator installs, **serverless online play with
+rollback** (GGPO-style), voice chat and link cable, rewind, fast forward, per-console control
+remapping, self-updating cores and "Playing..." status on Discord. The interface is available in
+English, French, Spanish, Portuguese (Brazil), German, Simplified Chinese, Japanese, Korean and
+Arabic.
+
+**Systems**: NES, Super Nintendo, Nintendo 64, Game Boy, Game Boy Color, Game Boy Advance, Nintendo
 DS, Nintendo 3DS, GameCube, Wii, Mega Drive / Genesis, Sega CD, Saturn, Dreamcast, PlayStation, PS2,
-PSP, Atari 2600 / 5200 / 7800 / Lynx / Jaguar, arcade (FBNeo, Capcom CPS1/2/3, Neo Geo ; MAME en
-secours), et par émulateur externe : Switch, Xbox, Xbox 360, PS3, PS4.
+PSP, Atari 2600 / 5200 / 7800 / Lynx / Jaguar, arcade (FBNeo, Capcom CPS1/2/3, Neo Geo; MAME as a
+fallback), and through external emulators: Switch, Xbox, Xbox 360, PS3, PS4.
 
-Le projet est aussi un projet d'apprentissage du C++ (pour quelqu'un qui connaît le C) : le code est
-commenté, et les commentaires marqués `[C++]` expliquent ce qui diffère du C.
+The project is also a C++ learning project (for someone who already knows C): the code is
+commented, and comments tagged `[C++]` explain what differs from C. The code and its comments are
+written in French.
 
-> ⚖️ **Aucun BIOS ni aucun jeu n'est fourni.** Utilisez uniquement les dumps de vos propres consoles
-> et de vos propres jeux.
+> ⚖️ **No BIOS and no games are provided.** Only use dumps of consoles and games you own.
 
-## Comment ça marche
+## Download
 
-Les émulateurs eux-mêmes sont des **cores libretro** : des DLL (`snes9x_libretro.dll`,
-`pcsx_rearmed_libretro.dll`...) écrites par la communauté. Ce programme les charge et leur fournit
-l'image, le son, les manettes et les dossiers de BIOS et de sauvegardes.
+Windows 10 or 11, 64-bit. Every version is published on the
+[**Releases**](https://github.com/AdamchDarkness/NexoRetro/releases) page, in two flavors:
+
+| File | What it is |
+| --- | --- |
+| `NexoRetro-Setup-<version>.exe` | **The installer** (recommended). No administrator rights needed: the program goes to `%LOCALAPPDATA%\Programs\NexoRetro`, with a Start menu shortcut (and a desktop shortcut if you want one). |
+| `NexoRetro-<version>-portable.zip` | **The portable version**: unzip it anywhere (a USB stick, for instance); nothing is installed. |
+| `SHA256SUMS.txt` | SHA-256 checksums of both files, to verify a download. |
+
+**Where is my data?** (cores, BIOS, games, saves, settings)
+
+- **installed** copy: in `%APPDATA%\NexoRetro`. Updates and uninstalling never touch it: it is
+  still there if you reinstall;
+- **portable** copy (or one you compiled yourself): next to `NexoRetro.exe`.
+
+An installed copy knows it is installed thanks to the `installed.txt` file the installer puts next
+to the executable; a `portable.txt` file in the same folder forces portable mode. The
+`--data <folder>` option picks another folder in every case.
+
+**Updates**: Nexo Retro checks the Releases page for new versions by itself. An installed copy
+updates in one click (the installer is downloaded, verified against `SHA256SUMS.txt`, then run
+silently: it closes the program, replaces it without touching your data and starts it again).
+Cores update on their own as well (see below).
+
+**Uninstall**: Windows Settings → Apps → Nexo Retro. Your data stays in `%APPDATA%\NexoRetro`
+(delete that folder yourself if you no longer want it).
+
+## How it works
+
+The emulators themselves are **libretro cores**: DLLs (`snes9x_libretro.dll`,
+`pcsx_rearmed_libretro.dll`...) written by the community. This program loads them and gives them
+video, audio, controllers, and the BIOS and save folders.
 
 ```
 src/
-  main.cpp, App.*        point d'entrée et chef d'orchestre (interface <-> jeu)
-  Core.*                 chargement de la DLL et dialogue avec le core
-  Video.*, GlFunctions   fenêtre et affichage OpenGL (contexte séparé pour les cores 3D)
-  VulkanRender.*         rendu Vulkan des cores qui le demandent
-  Audio.*, Input.*       son, clavier, manettes, souris (pointeur de la Wiimote)
-  Remaps.*               commandes réglables par console (boutons et sticks)
-  Rewind.*               retour en arrière (différences entre images, compressées)
-  Library.*              consoles gérées, recherche des jeux, détection de la console
-  UserData.*             historique, temps de jeu, favoris, jaquettes, manette Wii choisie
-  Settings.*, Bios.*     réglages ; BIOS reconnus par leur empreinte (base System.dat)
-  ExternalInstaller.*    installation en un clic : cores, émulateurs externes, fichiers libres
-  ExternalSetup.*        fichiers système des émulateurs externes (firmware PS3, clés, BIOS Xbox)
-  CoreOptions.*, Cheats.*, SaveFiles.*, Lang.*   options des cores, triches, sauvegardes, langues
-  net/                   jeu en ligne sans serveur : UDP, STUN, UPnP, salon, rollback, câble link
-  scrape/                jaquettes et informations (bases libretro)
-  Ui.*                   mise en place d'ImGui et notifications
-  ui/                    LE DESIGN (voir ci-dessous)
-assets/fonts/            police Plus Jakarta Sans (licence OFL)
-assets/lang/             traductions (en.txt)
-assets/database/         System.dat de libretro : empreintes des BIOS connus
-third_party/             libretro.h, libretro_vulkan.h (MIT), stb_image.h (domaine public)
-tools/testcore/          mini-cores de test (jeu en ligne, câble link, Vulkan)
-outils/                  creer-paquet.ps1 (zip à envoyer), deux-joueurs.ps1 (tester le jeu en ligne seul)
+  main.cpp, App.*        entry point and conductor (interface <-> game)
+  Core.*                 loading the DLL and talking to the core
+  Video.*, GlFunctions   window and OpenGL display (separate context for 3D cores)
+  VulkanRender.*         Vulkan rendering for the cores that ask for it
+  Audio.*, Input.*       sound, keyboard, controllers, mouse (Wiimote pointer)
+  Remaps.*               per-console control remapping (buttons and sticks)
+  Rewind.*               rewind (compressed differences between frames)
+  Library.*              supported systems, game scanning, system detection
+  UserData.*             history, play time, favorites, covers, chosen Wii controller
+  Settings.*, Bios.*     settings; BIOS recognized by their checksum (System.dat database)
+  ExternalInstaller.*    one-click installs: cores, external emulators, free system files
+  ExternalSetup.*        system files for external emulators (PS3 firmware, keys, Xbox BIOS)
+  CoreOptions.*, Cheats.*, SaveFiles.*, Lang.*   core options, cheats, saves, languages
+  net/                   serverless online play: UDP, STUN, UPnP, room, rollback, link cable
+  scrape/                covers and game info (libretro databases)
+  Ui.*                   ImGui setup and notifications
+  ui/                    THE DESIGN (see below)
+assets/fonts/            Plus Jakarta Sans font (OFL license)
+assets/lang/             translations (en.txt...)
+assets/database/         libretro's System.dat: checksums of known BIOS files
+third_party/             libretro.h, libretro_vulkan.h (MIT), stb_image.h (public domain)
+tools/testcore/          tiny test cores (online play, link cable, Vulkan)
+outils/                  creer-installateur.ps1 (release files), creer-paquet.ps1 (zip for a friend,
+                         with your cores), deux-joueurs.ps1 (test online play alone)
+installateur/            NexoRetro.iss: the installer (Inno Setup 6)
+.github/workflows/       release.yml: automatic build and release on every v* tag
 ```
 
-### Le design (`src/ui/`)
+### The design (`src/ui/`)
 
-Organisé en couches, de la plus simple à la plus complète :
+Organized in layers, from the simplest to the most complete:
 
-| Fichier | Rôle |
+| File | Role |
 | --- | --- |
-| `Theme.*` | Les jetons de design : couleurs, polices, échelle. Changer une couleur ici la change partout. |
-| `Draw.*` | Primitives de dessin : ombres douces, texte, pointillés, icônes vectorielles. |
-| `Widgets.*` | Composants cliquables : boutons, puces, interrupteurs, sélecteurs, champs. |
-| `Covers.*` | Jaquettes générées, ou images choisies par l'utilisateur. |
-| `Screens.hpp`, `Common.cpp` | Navigation, contexte partagé, mise en forme des dates et tailles. |
-| `Shell.cpp` | La barre du haut et l'aiguillage vers l'écran courant. |
-| `*Screen.cpp` | Un fichier par écran : Accueil, Bibliothèque, Fiche du jeu, Ajouter, BIOS, Amis, Paramètres. |
-| `PauseMenu.*` | Le menu affiché par-dessus le jeu. |
+| `Theme.*` | Design tokens: colors, fonts, scale. Change a color here and it changes everywhere. |
+| `Draw.*` | Drawing primitives: soft shadows, text, dotted lines, vector icons. |
+| `Widgets.*` | Clickable components: buttons, chips, toggles, selectors, fields. |
+| `Covers.*` | Generated covers, or images chosen by the user. |
+| `Screens.hpp`, `Common.cpp` | Navigation, shared context, date and size formatting. |
+| `Shell.cpp` | The top bar and dispatching to the current screen. |
+| `*Screen.cpp` | One file per screen: Home, Library, Game page, Add, BIOS, Friends, Settings, Big Picture. |
+| `PauseMenu.*` | The menu shown on top of the game. |
 
-## Compiler
+## Building
 
-Prérequis :
+Requirements:
 
-- **Visual Studio 2026 Build Tools** avec la charge de travail « Développement Desktop en C++ »
-- **CMake 3.24+** : `winget install Kitware.CMake`
+- **Visual Studio 2026 Build Tools** with the "Desktop development with C++" workload
+  (Visual Studio 2022 works too, see below)
+- **CMake 3.24+**: `winget install Kitware.CMake`
 - **Git**
 
 ```bash
@@ -83,160 +120,191 @@ cmake --preset windows
 cmake --build --preset release
 ```
 
-Le premier `cmake --preset windows` télécharge et compile SDL3 et Dear ImGui. L'exécutable se trouve
-ensuite dans `build/Release/NexoRetro.exe`, avec son dossier `assets/`.
+The first `cmake --preset windows` downloads and builds SDL3, Dear ImGui, miniupnpc, Opus and the
+Vulkan headers. The executable is then in `build/Release/NexoRetro.exe`, next to its `assets/`
+folder. With **Visual Studio 2022**, without the preset:
 
-## Utiliser
+```bash
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+```
 
-Lancez `NexoRetro.exe` : la bibliothèque s'ouvre. Les dossiers `cores/`, `bios/`, `roms/` et
-`saves/` sont créés à côté de l'exécutable (ou dans le dossier donné avec `--data <dossier>`).
-Chaque jeu a son dossier de sauvegarde, `saves/<nom du jeu>/` : sa sauvegarde (`.srm`), ses
-sauvegardes d'état et ses captures. La fiche du jeu a un bouton « Ouvrir le dossier de sauvegarde ».
+### Making a release (installer and portable zip)
 
-1. Installez les émulateurs : Paramètres → **Émulateurs (cores)** → « Installer les cores manquants »
-   (ou un par un, ou depuis la fiche d'un jeu). Ils viennent du serveur officiel de libretro.
-2. Ajoutez vos jeux depuis l'écran **Ajouter** (glisser-déposer, fichiers ou dossiers surveillés), ou
-   rangez-les dans `roms/<console>/`.
-3. Déposez vos BIOS sur l'écran **BIOS** (un fichier ou un dossier entier) : ils sont reconnus à leur
-   contenu et rangés au bon endroit. GameCube/Wii et PSP n'ont pas de BIOS, mais des fichiers libres
-   de Dolphin et PPSSPP, installables depuis la fiche d'un jeu.
-4. Pour jouer en ligne : écran **Amis** → Créer le salon → envoyer le code (`EMU-XXXX-XXXX-XXXX-XXXX`) ;
-   l'ami le colle et rejoint. Même fichier de jeu et même version d'émulateur des deux côtés. Le
-   salon affiche le ping et les pertes de chacun, et la qualité de la connexion avant de lancer.
+You need [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+(`winget install --id JRSoftware.InnoSetup -e --scope user`), then:
 
-**Bibliothèque** : un seul rang de commandes (recherche, « Filtres », choix de la vue). La recherche
-est instantanée (titre, console, genre, éditeur, année ; plusieurs mots, sans tenir compte des
-accents). Les catégories (Tous, Favoris, Récents, consoles) tiennent sur une ligne qui défile à la
-molette. « Filtres » ouvre une fenêtre pour trier et filtrer par genre, décennie, nombre de joueurs
-et éditeur ; les filtres actifs s'affichent en pastilles qu'un clic retire. Trois vues : grille de
-jaquettes, liste détaillée, carrousel (flèches, molette ou manette ; Entrée pour jouer).
+```bash
+powershell -ExecutionPolicy Bypass -File outils/creer-installateur.ps1
+```
 
-**Mode Big Picture** (bouton télé en haut, ou Start à la manette ; Paramètres → Affichage →
-« Démarrer en Big Picture ») : plein écran sombre, grandes jaquettes, fond tiré de la capture du jeu,
-heure, et tout se pilote à la manette :
+The script builds in Release and writes to `dist/`: `NexoRetro-Setup-<version>.exe`,
+`NexoRetro-<version>-portable.zip` and `SHA256SUMS.txt`. The version comes from
+`project(NexoRetro VERSION x.y.z)` in `CMakeLists.txt`.
 
-| Bouton | Action |
+Publishing: bump the version in `CMakeLists.txt`, then push an annotated tag `v<version>`
+(`git tag -a v0.3.0 -m "Release notes"` then `git push origin v0.3.0`). GitHub Actions
+(`.github/workflows/release.yml`) builds, creates the three files and publishes the release, using
+the tag message as release notes.
+
+The installer accepts the usual Inno Setup options: `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`
+installs without any window (this is what the automatic update does) and starts Nexo Retro again at
+the end; `/NOLAUNCH` prevents that restart (tests); `/DIR=<folder>` changes the install folder.
+
+## Using it
+
+Start Nexo Retro: the library opens. The `cores/`, `bios/`, `roms/` and `saves/` folders are
+created in the data folder (`%APPDATA%\NexoRetro` for an installed copy, next to the executable
+otherwise, or in the folder given with `--data <folder>`).
+Each game has its own save folder, `saves/<game name>/`: its in-game save (`.srm`), its save states
+and its screenshots. The game page has an "Open the save folder" button.
+
+1. Install the emulators: Settings → **Emulators (cores)** → "Install missing cores" (or one by
+   one, or from a game's page). They come from libretro's official server.
+2. Add your games from the **Add** screen (drag and drop, files or watched folders), or put them in
+   `roms/<system>/`.
+3. Drop your BIOS files on the **BIOS** screen (one file or a whole folder): they are recognized by
+   their content and stored in the right place. GameCube/Wii and PSP have no BIOS, but use free
+   files from Dolphin and PPSSPP, which can be installed from a game's page.
+4. To play online: **Friends** screen → Create the room → send the code (`EMU-XXXX-XXXX-XXXX-XXXX`);
+   your friend pastes it and joins. Same game file and same emulator version on both sides. The
+   room shows everyone's ping and packet loss, and the connection quality before starting.
+
+**Library**: a single row of controls (search, "Filters", view picker). Search is instant (title,
+system, genre, publisher, year; several words, accent-insensitive). The categories (All,
+Favorites, Recent, systems) fit on one line that scrolls with the mouse wheel. "Filters" opens a
+window to sort and filter by genre, decade, number of players and publisher; active filters are
+shown as chips that one click removes. Three views: cover grid, detailed list, carousel (arrow
+keys, mouse wheel or controller; Enter to play).
+
+**Big Picture mode** (TV button at the top, or Start on a controller; Settings → Display →
+"Start in Big Picture"): dark full screen, large covers, a background taken from the game's
+screenshot, the clock, and everything is driven by the controller:
+
+| Button | Action |
 | --- | --- |
-| Croix, stick gauche (flèches) | Jeu précédent / suivant |
-| LB / RB (Page préc. / suiv.) | Catégorie (Tous, Favoris, Récents, chaque console) |
-| A (Entrée) | Jouer |
-| X (R) | Reprendre là où on s'était arrêté (sauvegarde automatique) |
-| Y (F) | Ajouter aux favoris / retirer |
-| B, Start (Échap) | Quitter Big Picture |
+| D-pad, left stick (arrow keys) | Previous / next game |
+| LB / RB (Page Up / Page Down) | Category (All, Favorites, Recent, each system) |
+| A (Enter) | Play |
+| X (R) | Resume where you left off (automatic save) |
+| Y (F) | Add to / remove from favorites |
+| B, Start (Esc) | Exit Big Picture |
 
-Après une partie, on revient dans Big Picture, toujours en plein écran.
+After a game, you come back to Big Picture, still in full screen.
 
-**Chat vocal** (Paramètres → Jeu en ligne) : micro ouvert (n'envoie que quand on parle, sensibilité
-réglable) ou appuyer pour parler (touche au choix, T par défaut), volume des voix, test du micro.
-Dans le salon : couper son micro, ne plus entendre un membre, anneau vert autour de celui qui parle.
-En jeu : menu pause → « Couper mon micro » et « Afficher le ping et les pertes ».
+**Voice chat** (Settings → Online play): open mic (only sends while you speak, adjustable
+sensitivity) or push to talk (key of your choice, T by default), voice volume, mic test. In the
+room: mute your mic, stop hearing a member, a green ring around whoever is speaking. In game: pause
+menu → "Mute my mic" and "Show ping and packet loss".
 
-**Cores à jour** : au démarrage (une fois par jour), l'émulateur compare ses cores à ceux du serveur
-de libretro et télécharge les nouvelles versions, jamais celle du jeu en cours (Paramètres →
-Émulateurs (cores) → « Mise à jour automatique », « Vérifier maintenant »).
+**Up-to-date cores**: at startup (once a day), the emulator compares its cores with those on
+libretro's server and downloads new versions, never the one of the game being played (Settings →
+Emulators (cores) → "Automatic updates", "Check now").
 
-**Discord** : « Joue à Zelda · Super Nintendo », avec la jaquette et le temps de jeu, ou « En ligne
-(2 joueurs) ». L'émulateur parle à l'application Discord ouverte sur le PC (tube nommé
-`discord-ipc-0`), sans bibliothèque à installer. Il faut l'identifiant d'une application Discord
-(créée une fois sur discord.com/developers) : `kDiscordAppId` dans `src/Discord.hpp`, ou Paramètres →
-Jeu en ligne → Discord.
+**Discord**: "Playing Zelda · Super Nintendo", with the cover and play time, or "Online (2
+players)". The emulator talks to the Discord app running on the PC (named pipe `discord-ipc-0`),
+without any library to install. It needs the ID of a Discord application (created once at
+discord.com/developers): `kDiscordAppId` in `src/Discord.hpp`, or Settings → Online play → Discord.
 
-| Touche (en jeu) | Action |
+| Key (in game) | Action |
 | --- | --- |
-| Flèches | Croix directionnelle |
+| Arrow keys | D-pad |
 | X / C / S / D | B / A / Y / X |
 | E / R | L / R |
-| Entrée / Maj droite | Start / Select |
-| Échap, Select + Start | Menu pause |
-| F2 / F4 | Sauvegarder / charger l'état |
-| F8 | Redémarrer |
-| F12 | Capture d'écran (dans le dossier de sauvegarde du jeu) |
-| Tab (maintenu), Select + R | Avance rapide (×2 à ×8, Paramètres → Manettes) |
-| Retour arrière (maintenu), Select + L | Retour en arrière (pas en ligne, ni PS2/GameCube/Wii) |
-| F11 | Plein écran |
+| Enter / Right Shift | Start / Select |
+| Esc, Select + Start | Pause menu |
+| F2 / F4 | Save / load state |
+| F8 | Reset |
+| F12 | Screenshot (in the game's save folder) |
+| Tab (held), Select + R | Fast forward (×2 to ×8, Settings → Controllers) |
+| Backspace (held), Select + L | Rewind (not online, nor PS2/GameCube/Wii) |
+| F11 | Full screen |
 
-Menu pause → **Commandes de la console** : chaque action de la console émulée (bouton « 1 » de la
-Wiimote, « Shake », boutons C de la N64...) et chacun de ses sticks peuvent être mis sur le bouton ou
-le stick de son choix. Mémorisé par console, et pour la Wii par type de manette (choisi sur la fiche
-du jeu). En ligne, chacun garde ses propres réglages sans désynchroniser la partie.
+Pause menu → **Console controls**: every action of the emulated console (Wiimote "1" button,
+"Shake", N64 C buttons...) and each of its sticks can be mapped to the button or stick of your
+choice. Remembered per system, and for the Wii per controller type (chosen on the game page).
+Online, everyone keeps their own settings without desynchronizing the game.
 
-Dans l'interface : F5 actualise la bibliothèque, F1 affiche la démo d'ImGui (pour apprendre).
+In the interface: F5 refreshes the library, F1 shows the ImGui demo (for learning).
 
-Pour les tests automatiques : `--screen library --frames 45 --screenshot capture.bmp` ouvre un écran,
-attend 45 images puis quitte en enregistrant une capture.
-Écrans de test supplémentaires : `covers` (fenêtre « Changer la jaquette » du premier jeu), `infos`
-(Paramètres → Jaquettes et infos), `pads` (Paramètres → Manettes), `delete` (fenêtre « Supprimer »).
-`--test-remove hide|trash` retire le premier jeu de la bibliothèque (ou l'envoie à la Corbeille).
-`--library-view 0|1|2` ouvre la bibliothèque en grille, liste ou carrousel (sans l'enregistrer).
-`--screen filters` ouvre la fenêtre des filtres ; `--big-picture` démarre en mode Big Picture.
-Variables de test : `EMU_VOICE_TEST=tone` (un « la » à la place du micro), `EMU_VOICE_DUMP=fichier`
-(la voix reçue, PCM 48 kHz mono), `EMU_TEST_CORE_UPDATE=1` (vérifie les cores même en test),
-`EMU_DISCORD_TRACE=1` (tout ce que Discord répond). Pendant les tests automatiques, le vrai micro
-n'est jamais ouvert.
+For automated tests: `--screen library --frames 45 --screenshot capture.bmp` opens a screen, waits
+45 frames, then quits and saves a screenshot.
+Extra test screens: `covers` (the "Change cover" window of the first game), `infos` (Settings →
+Covers and info), `pads` (Settings → Controllers), `delete` (the "Delete" window).
+`--test-remove hide|trash` removes the first game from the library (or sends it to the Recycle Bin).
+`--library-view 0|1|2` opens the library as a grid, list or carousel (without saving it).
+`--screen filters` opens the filters window; `--big-picture` starts in Big Picture mode.
+Test variables: `EMU_VOICE_TEST=tone` (an "A" note instead of the microphone), `EMU_VOICE_DUMP=file`
+(the received voice, 48 kHz mono PCM), `EMU_TEST_CORE_UPDATE=1` (checks cores even in tests),
+`EMU_DISCORD_TRACE=1` (everything Discord answers). During automated tests, the real microphone is
+never opened.
 
-## Feuille de route
+## Roadmap
 
-- [x] **Étape 1** : charger un core, afficher, son, manettes, sauvegardes
-- [x] **Étape 2** : rendu matériel OpenGL (cores 3D)
-- [x] **Étape 3** : interface complète (bibliothèque, fiche, BIOS, réglages, ajout de jeux)
-- [x] Touches réassignables, toutes les manettes (y compris génériques)
-- [x] Sauvegarde du jeu visible et remplaçable (l'ancienne part à la Corbeille) ; codes de triche par jeu, avec les codes de la base libretro
-- [x] Supprimer un jeu : le retirer de la bibliothèque, ou envoyer ses fichiers à la Corbeille
-  (pistes `.bin` d'un `.cue` comprises) ; les jeux retirés se réaffichent depuis Paramètres → Dossiers
-- [x] **Réseau, étape 1** : salon privé par code d'invitation, sans serveur (STUN, UPnP, perforation de NAT, chat)
-- [x] **Réseau, étape 2** : salon complet (mot de passe, jusqu'à 8 joueurs, choix du jeu, vérification du fichier par empreinte)
-- [x] **Réseau, étape 3** : netplay en "lockstep avec délai" (jusqu'à 4 joueurs, synchronisation de l'état, détection des désynchronisations)
-- [x] **Rollback** (comme GGPO : mes touches s'appliquent tout de suite, celles de l'ami sont devinées puis corrigées)
-- [x] Partie en ligne à partir de la sauvegarde de l'hôte (progression enregistrée chez lui à la fin)
-- [x] **Câble link en ligne** (GBA avec gpSP, Game Boy avec Gambatte) : chacun sa console et sa sauvegarde
-- [x] **Arcade et Neo Geo** (FBNeo, MAME en secours), en ligne compris
-- [x] Sans-fil DS (melonDS DS) ; « chacun sa console » choisi d'office pour Game Boy, GBA et DS
-- [x] **Plusieurs langues** (anglais par défaut, français) : fichiers `assets/lang/<code>.txt`
-- [x] Dreamcast (Flycast), 3DS (Citra) ; Switch, Xbox, Xbox 360, PS3, PS4 par émulateur externe
-- [x] Sticks arcade : disposition « stick arcade » en un clic, stick qui pilote la croix
-- [x] Volume réglable (Paramètres → Son, et barre dans le menu en jeu)
-- [x] Options des cores (Paramètres → Options des cores, en français quand le core est traduit)
-- [x] **Scraping** : jaquettes, captures, genre, année, développeur, éditeur, joueurs (sources libretro, sans compte)
-- [ ] Résumés des jeux en français (ScreenScraper, demande des identifiants développeur)
-- [x] **BIOS reconnus par leur contenu** (empreinte CRC32, base `System.dat` de libretro), même mal nommés
-- [x] **Installation en un clic** des émulateurs externes (pages officielles), import des fichiers système
-- [x] **Rendu Vulkan** (avec négociation du device), au choix d'OpenGL pour les cores qui font les deux
-- [x] Paramètres → **Émulateurs (cores)** : chaque core, installé ou mis à jour en un clic (serveur officiel de libretro)
-- [x] GameCube et Wii séparées (reconnues au contenu du disque) ; manette Wii au choix par jeu ; visée à la souris
-- [x] **Commandes de la console** (menu en jeu) : chaque action (Wiimote 1/2/Shake, C-Haut N64...) sur le bouton de son choix
-- [x] Game Boy et Game Boy Color séparées, Sega CD, Saturn, Atari 2600/5200/7800/Lynx/Jaguar ; fichiers libres de Dolphin et PPSSPP
-- [x] **Codes d'invitation courts** (16 symboles) ; les PC du même réseau local (box, Radmin, Hamachi) se trouvent seuls
-- [x] **Ping et pertes** de chaque joueur, dans le salon et (au choix) pendant la partie ; qualité de connexion avant de lancer
-- [x] **Chat vocal** (Opus) : micro ouvert ou appuyer pour parler, couper son micro ou un membre
-- [x] **Bibliothèque** : filtres (genre, année, joueurs, éditeur), recherche sans accents, vues grille / liste / carrousel
-- [x] **Mise à jour automatique des cores** (une fois par jour, jamais celui du jeu en cours)
-- [x] Interface en **espagnol, portugais (Brésil) et allemand**
-- [x] Interface en **chinois simplifié, japonais, coréen et arabe** (polices de Windows, arabe lié et de droite à gauche)
-- [x] **Discord Rich Presence** (sans SDK : tube nommé de Discord)
-- [x] Bibliothèque allégée : filtres dans une fenêtre, catégories sur une ligne, filtres actifs en pastilles
-- [x] **Mode Big Picture** : plein écran, grandes jaquettes, entièrement à la manette
-- [ ] Rendu Vulkan sans recopie (image partagée Vulkan/OpenGL), pour les très hautes résolutions
-- [ ] **Liste d'amis** (prochaine mise à jour) : sans serveur, via l'annuaire décentralisé de BitTorrent
-  (DHT, comme le messager Tox). Chaque joueur a une clé, son « code ami » est sa clé publique ; il y
-  annonce son adresse du moment, chiffrée pour ses amis, puis la perforation de NAT existante prend
-  le relais. Un serveur à soi (open source) pourra s'ajouter en option. En attendant : le code d'invitation.
+- [x] **Step 1**: load a core, display, sound, controllers, saves
+- [x] **Step 2**: OpenGL hardware rendering (3D cores)
+- [x] **Step 3**: complete interface (library, game page, BIOS, settings, adding games)
+- [x] Remappable keys, every controller (including generic ones)
+- [x] Game save visible and replaceable (the old one goes to the Recycle Bin); per-game cheat codes, with codes from the libretro database
+- [x] Deleting a game: remove it from the library, or send its files to the Recycle Bin
+  (including the `.bin` tracks of a `.cue`); removed games can be shown again from Settings → Folders
+- [x] **Network, step 1**: private room with an invite code, serverless (STUN, UPnP, NAT hole punching, chat)
+- [x] **Network, step 2**: full room (password, up to 8 players, game choice, file check by checksum)
+- [x] **Network, step 3**: "delay-based lockstep" netplay (up to 4 players, state sync, desync detection)
+- [x] **Rollback** (GGPO-style: my inputs apply immediately, my friend's are predicted then corrected)
+- [x] Online game starting from the host's save (progress saved on the host's side at the end)
+- [x] **Online link cable** (GBA with gpSP, Game Boy with Gambatte): each player has their own console and save
+- [x] **Arcade and Neo Geo** (FBNeo, MAME as a fallback), online included
+- [x] DS wireless (melonDS DS); "each their own console" chosen automatically for Game Boy, GBA and DS
+- [x] **Multiple languages** (English by default, French): `assets/lang/<code>.txt` files
+- [x] Dreamcast (Flycast), 3DS (Citra); Switch, Xbox, Xbox 360, PS3, PS4 through external emulators
+- [x] Arcade sticks: "arcade stick" layout in one click, stick that drives the D-pad
+- [x] Adjustable volume (Settings → Sound, and a slider in the in-game menu)
+- [x] Core options (Settings → Core options, translated when the core is)
+- [x] **Scraping**: covers, screenshots, genre, year, developer, publisher, players (libretro sources, no account)
+- [ ] Game summaries in French (ScreenScraper, requires developer credentials)
+- [x] **BIOS recognized by their content** (CRC32 checksum, libretro's `System.dat` database), even when misnamed
+- [x] **One-click install** of external emulators (official pages), import of system files
+- [x] **Vulkan rendering** (with device negotiation), as an alternative to OpenGL for cores that support both
+- [x] Settings → **Emulators (cores)**: each core, installed or updated in one click (libretro's official server)
+- [x] Separate GameCube and Wii (recognized from the disc content); Wii controller chosen per game; mouse aiming
+- [x] **Console controls** (in-game menu): every action (Wiimote 1/2/Shake, N64 C-Up...) on the button of your choice
+- [x] Separate Game Boy and Game Boy Color, Sega CD, Saturn, Atari 2600/5200/7800/Lynx/Jaguar; free Dolphin and PPSSPP files
+- [x] **Short invite codes** (16 symbols); PCs on the same local network (router, Radmin, Hamachi) find each other on their own
+- [x] **Ping and packet loss** for each player, in the room and (optionally) during the game; connection quality before starting
+- [x] **Voice chat** (Opus): open mic or push to talk, mute yourself or a member
+- [x] **Library**: filters (genre, year, players, publisher), accent-insensitive search, grid / list / carousel views
+- [x] **Automatic core updates** (once a day, never the core of the game being played)
+- [x] Interface in **Spanish, Portuguese (Brazil) and German**
+- [x] Interface in **Simplified Chinese, Japanese, Korean and Arabic** (Windows fonts, joined right-to-left Arabic)
+- [x] **Discord Rich Presence** (no SDK: Discord's named pipe)
+- [x] Lighter library: filters in a window, categories on one line, active filters as chips
+- [x] **Big Picture mode**: full screen, large covers, fully controller-driven
+- [x] **Installer and portable version** published on GitHub Releases, in-app updates
+- [ ] Copy-free Vulkan rendering (shared Vulkan/OpenGL image), for very high resolutions
+- [ ] **Friends list** (next update): serverless, through BitTorrent's decentralized directory
+  (DHT, like the Tox messenger). Each player has a key, and their "friend code" is their public key;
+  they announce their current address there, encrypted for their friends, then the existing NAT
+  hole punching takes over. A self-hosted (open source) server may be added as an option. In the
+  meantime: the invite code.
 
-## Langues
+## Languages
 
-L'interface est en **anglais par défaut** ; Paramètres → Display → Language la passe en français,
-espagnol, portugais (Brésil), allemand, chinois simplifié, japonais, coréen ou arabe.
+The interface is in **English by default**; Settings → Display → Language switches it to French,
+Spanish, Portuguese (Brazil), German, Simplified Chinese, Japanese, Korean or Arabic.
 
-Les écritures que la police de l'interface (Plus Jakarta Sans) n'a pas viennent des polices déjà
-installées avec Windows, sans rien ajouter au paquet : Microsoft YaHei (chinois), Yu Gothic
-(japonais), Malgun Gothic (coréen), Segoe UI (arabe). Leurs lettres sont « fusionnées » dans la
-police de l'interface ; celle de la langue choisie passe en premier (les idéogrammes chinois et
-japonais se dessinent un peu différemment), et les polices sont rechargées quand on change de langue.
+Scripts that the interface font (Plus Jakarta Sans) lacks come from fonts already installed with
+Windows, without adding anything to the package: Microsoft YaHei (Chinese), Yu Gothic (Japanese),
+Malgun Gothic (Korean), Segoe UI (Arabic). Their glyphs are "merged" into the interface font; the
+one for the chosen language comes first (Chinese and Japanese ideographs are drawn slightly
+differently), and fonts are reloaded when the language changes.
 
-L'arabe demande deux étapes de plus, car ImGui écrit lettre par lettre, de gauche à droite
-(`src/Arabic.cpp`) : chaque lettre prend sa forme liée (isolée, initiale, médiane, finale, ligature
-lam-alif), puis le texte est remis dans l'ordre d'affichage, les nombres et les mots latins restant
-de gauche à droite. Les paragraphes sont coupés en lignes avant d'être retournés.
-Le code est écrit en français, et chaque autre langue est un fichier `assets/lang/<code>.txt` :
+Arabic needs two more steps, because ImGui writes letter by letter, from left to right
+(`src/Arabic.cpp`): each letter takes its joined form (isolated, initial, medial, final, lam-alif
+ligature), then the text is put back into display order, with numbers and Latin words staying
+left-to-right. Paragraphs are wrapped into lines before being reversed.
+
+The code is written in French, and every other language is an `assets/lang/<code>.txt` file:
 
 ```
 # name: English
@@ -245,249 +313,257 @@ Il y a {n} min => {} min ago
 Jeu choisi : {} => Game chosen: {}
 ```
 
-`{}` remplace une partie variable, `{n}` un nombre seulement. La traduction se fait au moment de
-dessiner le texte (`src/Lang.cpp`, appelé par `draw::text`, `draw::measure`...) : aucun écran n'a à
-s'en soucier, et la mise en page s'adapte à la longueur des mots. **Ajouter une langue** : copier
-`en.txt` (ex. `es.txt`), changer la ligne `# name:`, traduire la partie droite de chaque ligne. Pour
-trouver les textes oubliés : lancer avec la variable `EMU_LANG_MISSING=manquants.txt`, qui note les
-textes français affichés sans traduction.
+`{}` stands for a variable part, `{n}` for a number only. Translation happens when the text is drawn
+(`src/Lang.cpp`, called by `draw::text`, `draw::measure`...): no screen has to care about it, and
+the layout adapts to the length of the words. **Adding a language**: copy `en.txt` (e.g. `es.txt`),
+change the `# name:` line, translate the right-hand side of every line. To find forgotten strings:
+run with the variable `EMU_LANG_MISSING=missing.txt`, which records the French strings displayed
+without a translation.
 
-## Consoles récentes : émulateurs externes
+## Recent consoles: external emulators
 
-Switch, Xbox, Xbox 360, PS3 et PS4 n'ont pas de core libretro. Leurs jeux apparaissent dans la
-bibliothèque (jaquettes, temps de jeu...), mais c'est un **émulateur à part** qui les lance :
+Switch, Xbox, Xbox 360, PS3 and PS4 have no libretro core. Their games show up in the library
+(covers, play time...), but a **separate emulator** launches them:
 
-| Console | Émulateur | Dossier `roms/` | Fichiers |
+| Console | Emulator | `roms/` folder | Files |
 |---|---|---|---|
 | Switch | Ryujinx | `switch` | `.nsp`, `.xci` |
 | Xbox | xemu | `xbox` | `.iso` (xiso) |
 | Xbox 360 | Xenia | `x360` | `.iso`, `.xex` |
-| PS3 | RPCS3 | `ps3` | `.iso`, ou le dossier du jeu (`EBOOT.BIN`) |
-| PS4 | shadPS4 | `ps4` | le dossier du jeu (`eboot.bin`) |
+| PS3 | RPCS3 | `ps3` | `.iso`, or the game folder (`EBOOT.BIN`) |
+| PS4 | shadPS4 | `ps4` | the game folder (`eboot.bin`) |
 
-Paramètres → Émulateurs externes :
+Settings → External emulators:
 
-- **Installer** (PS3, PS4, Xbox, Xbox 360) télécharge la dernière version de l'émulateur sur sa page
-  GitHub **officielle** (`src/ExternalInstaller.cpp`), la décompresse dans `emulators/<console>/`
-  avec le `tar.exe` de Windows (qui lit aussi les `.7z`), la règle en mode portable et retient son
-  chemin. **Mettre à jour** refait la même chose.
-- **Choisir…** indique un émulateur déjà installé (obligatoire pour la Switch : voir plus bas).
-- Les **fichiers système** ne sont **jamais téléchargés à la place de l'utilisateur**
-  (`src/ExternalSetup.cpp`) : le bouton *Importer…* les range et règle l'émulateur.
+- **Install** (PS3, PS4, Xbox, Xbox 360) downloads the latest version of the emulator from its
+  **official** GitHub page (`src/ExternalInstaller.cpp`), extracts it to `emulators/<console>/`
+  with Windows' `tar.exe` (which also reads `.7z`), sets it to portable mode and remembers its
+  path. **Update** does the same again.
+- **Choose…** points to an emulator that is already installed (required for the Switch: see below).
+- **System files** are **never downloaded on the user's behalf** (`src/ExternalSetup.cpp`): the
+  *Import…* button stores them and configures the emulator.
 
-| Console | Fichiers système | Ce que fait *Importer…* |
+| Console | System files | What *Import…* does |
 |---|---|---|
-| PS3 | `PS3UPDAT.PUP` (gratuit sur le site de Sony) | lance `rpcs3 --installfw` |
-| Switch | `prod.keys`, `title.keys` (de **votre** console) | les copie là où l'émulateur les cherche |
-| Xbox | MCPX (512 octets), BIOS flash, disque `.qcow2` | les range dans `bios/xbox/` et écrit `xemu.toml` |
-| PS4, Xbox 360 | rien d'obligatoire | — |
+| PS3 | `PS3UPDAT.PUP` (free on Sony's website) | runs `rpcs3 --installfw` |
+| Switch | `prod.keys`, `title.keys` (from **your** console) | copies them where the emulator looks for them |
+| Xbox | MCPX (512 bytes), flash BIOS, `.qcow2` hard disk | stores them in `bios/xbox/` and writes `xemu.toml` |
+| PS4, Xbox 360 | nothing required | — |
 
-Pourquoi pas d'installation automatique pour la Switch : ses émulateurs (Yuzu, Ryujinx) ont été
-arrêtés en 2024 après les actions de Nintendo ; ce qui en reste, ce sont des copies reprises par
-d'autres équipes. Et ses clés servent à casser le chiffrement des jeux : les fournir serait illégal.
+Why there is no automatic install for the Switch: its emulators (Yuzu, Ryujinx) were shut down in
+2024 after legal action by Nintendo; what remains are copies taken over by other teams. And its
+keys are used to break the games' encryption: providing them would be illegal.
 
-L'émulateur est lancé depuis son propre dossier, avec ses arguments (`{rom}` = le jeu) ; le temps
-de jeu est compté jusqu'à sa fermeture. Pas de jeu en ligne ni de codes de triche pour ces consoles.
+The emulator is started from its own folder, with its arguments (`{rom}` = the game); play time is
+counted until it closes. No online play or cheat codes for these consoles.
 
-## BIOS reconnus par leur contenu
+## BIOS recognized by their content
 
-`assets/database/System.dat` (de libretro) donne la taille et l'empreinte (CRC32) de 500 BIOS. Un
-fichier déposé sur l'écran BIOS, ou trouvé en fouillant un dossier (*Chercher dans un dossier*), est
-reconnu **à son contenu**, même mal nommé, puis copié sous **tous** les noms où les cores le
-cherchent (`dmg_boot.bin` *et* `gb_bios.bin`...). L'écran signale d'un « ! » un fichier présent mais
-inconnu de la base (abîmé, modifié) ou qui est en fait un autre BIOS. Les BIOS de PS2 affichent leur
-version et leur région (« PS2 v2.30 · Europe »).
+`assets/database/System.dat` (from libretro) gives the size and checksum (CRC32) of 500 BIOS files.
+A file dropped on the BIOS screen, or found while searching a folder (*Search a folder*), is
+recognized **by its content**, even when misnamed, then copied under **every** name the cores look
+for (`dmg_boot.bin` *and* `gb_bios.bin`...). The screen flags with a "!" a file that is present but
+unknown to the database (damaged, modified) or that is actually another BIOS. PS2 BIOS files show
+their version and region ("PS2 v2.30 · Europe").
 
-## Rendu Vulkan
+## Vulkan rendering
 
-Les cores qui dessinent avec Vulkan (ParaLLEl-RDP pour la N64, Beetle PSX HW, PPSSPP, Dolphin...)
-sont pris en charge (`src/VulkanRender.cpp`) : on crée le device Vulkan (ou on laisse le core le
-créer, interface de « négociation » v1 et v2), le core dessine dans sa propre image, et on la recopie
-dans la texture OpenGL où l'interface est dessinée. `vulkan-1.dll` (installée avec le pilote
-graphique) est chargée à l'exécution : sans elle, seuls les cores Vulkan sont indisponibles.
-Paramètres → Affichage → *Rendu Vulkan* : pour les cores qui savent faire les deux, demande Vulkan
-plutôt qu'OpenGL. Le mini-core `vulkan_test_libretro.dll` (`tools/testcore/vulkantest.cpp`) teste
-toute la chaîne sans jeu : `NexoRetro.exe vulkan_test_libretro.dll` affiche un fond rouge qui
-pulse, vert quand on appuie sur A.
+Cores that draw with Vulkan (ParaLLEl-RDP for the N64, Beetle PSX HW, PPSSPP, Dolphin...) are
+supported (`src/VulkanRender.cpp`): we create the Vulkan device (or let the core create it, through
+the v1 and v2 "negotiation" interface), the core draws into its own image, and we copy it into the
+OpenGL texture the interface is drawn on. `vulkan-1.dll` (installed with the graphics driver) is
+loaded at run time: without it, only the Vulkan cores are unavailable.
+Settings → Display → *Vulkan rendering*: for cores that can do both, asks for Vulkan rather than
+OpenGL. The tiny `vulkan_test_libretro.dll` core (`tools/testcore/vulkantest.cpp`) tests the whole
+chain without a game: `NexoRetro.exe vulkan_test_libretro.dll` shows a pulsing red background that
+turns green when you press A.
 
-## Arcade et Neo Geo
+## Arcade and Neo Geo
 
-- **Core** : `fbneo_libretro.dll` (FinalBurn Neo, celui de Fightcade : le meilleur pour jouer en
-  ligne). À défaut, l'émulateur prend `mame2003_plus_libretro.dll` ou `mame_libretro.dll` s'ils sont
-  dans `cores/`. La fiche du jeu indique le core utilisé.
-- **Jeux** : un jeu = un `.zip` au nom imposé (`sf2.zip`, `kof98.zip`), d'un romset qui correspond
-  au core (romset FBNeo pour FBNeo). Rangez-les dans `roms/arcade/` ou `roms/neogeo/`, ou dans un
-  dossier surveillé dont le nom contient « arcade », « mame », « fbneo » ou « neogeo ».
-- **Noms** : le scraper retrouve le vrai titre grâce au nom du fichier (`kof98.zip` → « The King of
-  Fighters '98 »), avec la jaquette, l'année et l'éditeur.
-- **BIOS** : `neogeo.zip` va dans `bios/fbneo/`. S'il est rangé avec les jeux, l'émulateur le copie
-  tout seul. Les BIOS et puces d'arcade (`neogeo.zip`, `qsound.zip`, `pgm.zip`...) ne sont pas
-  affichés comme des jeux.
-- **En ligne** : comme les autres consoles, en rollback. L'émulateur dit au core que ses sauvegardes
-  d'état servent au jeu en ligne (`GET_SAVESTATE_CONTEXT`) et lui permet de sauter l'image et le son
-  pendant les recalculs (`GET_AUDIO_VIDEO_ENABLE`). Tous les joueurs doivent avoir le même core et
-  le même fichier (vérifié dans le salon).
+- **Core**: `fbneo_libretro.dll` (FinalBurn Neo, the one used by Fightcade: the best for online
+  play). Otherwise, the emulator uses `mame2003_plus_libretro.dll` or `mame_libretro.dll` if they
+  are in `cores/`. The game page shows which core is used.
+- **Games**: one game = one `.zip` with a fixed name (`sf2.zip`, `kof98.zip`), from a romset that
+  matches the core (FBNeo romset for FBNeo). Put them in `roms/arcade/` or `roms/neogeo/`, or in a
+  watched folder whose name contains "arcade", "mame", "fbneo" or "neogeo".
+- **Names**: the scraper finds the real title from the file name (`kof98.zip` → "The King of
+  Fighters '98"), with the cover, year and publisher.
+- **BIOS**: `neogeo.zip` goes in `bios/fbneo/`. If it is stored with the games, the emulator copies
+  it on its own. Arcade BIOS and chips (`neogeo.zip`, `qsound.zip`, `pgm.zip`...) are not shown as
+  games.
+- **Online**: like the other systems, with rollback. The emulator tells the core that its save
+  states are used for online play (`GET_SAVESTATE_CONTEXT`) and lets it skip video and audio during
+  re-simulation (`GET_AUDIO_VIDEO_ENABLE`). All players must have the same core and the same file
+  (checked in the room).
 
-### Options des cores
+### Core options
 
-Chaque core annonce ses options et leurs valeurs par défaut ; l'émulateur les lui rend quand il les
-demande (comme RetroArch), et lui dit qu'on parle français : les cores traduits donnent alors leurs
-options en français. **Paramètres → Options des cores** les affiche toutes, core par core ; ce qui
-diffère du défaut est rangé dans `core-options.txt` (à côté de `userdata.txt`, modifiable à la main) :
+Each core announces its options and their default values; the emulator gives them back when the
+core asks for them (like RetroArch), and tells it which language we speak: translated cores then
+give their options in that language. **Settings → Core options** shows them all, core by core;
+whatever differs from the default is stored in `core-options.txt` (next to `userdata.txt`, editable
+by hand):
 
 ```
 mame_softlists_enable=enabled
 ```
 
-Certains cores (FBNeo) n'annoncent leurs options qu'une fois un jeu chargé : l'émulateur retient
-celles vues au dernier lancement (dossier `core-options/`). En ligne, des options différentes
-entre joueurs empêchent le lancement (les parties divergeraient).
+Some cores (FBNeo) only announce their options once a game is loaded: the emulator remembers the
+ones seen during the last launch (`core-options/` folder). Online, different options between
+players prevent the game from starting (the games would diverge).
 
-Quand un jeu ne démarre pas, l'émulateur affiche la raison donnée par le core : par exemple
-« fichiers absents du zip : le romset ne correspond pas à la version de l'émulateur » (MAME et
-FBNeo demandent un romset de leur version exacte).
+When a game does not start, the emulator shows the reason given by the core: for instance "files
+missing from the zip: the romset doesn't match the emulator version" (MAME and FBNeo require a
+romset of their exact version).
 
-## Jaquettes et informations (scraping)
+## Covers and game info (scraping)
 
-Dès qu'un jeu arrive dans la bibliothèque, l'émulateur cherche en arrière-plan sa jaquette, son
-écran-titre, une capture en jeu, son genre, son année, son développeur, son éditeur et son nombre de
-joueurs. Aucun compte n'est nécessaire, les sources sont libres :
+As soon as a game enters the library, the emulator looks in the background for its cover, title
+screen, an in-game screenshot, its genre, year, developer, publisher and number of players. No
+account is needed; the sources are open:
 
-- **libretro-database** : un fichier `.rdb` par console (format MessagePack), téléchargé une fois
-  puis gardé 30 jours ;
-- **thumbnails.libretro.com** : les images, rangées par nom officiel (No-Intro).
+- **libretro-database**: one `.rdb` file per system (MessagePack format), downloaded once then kept
+  for 30 days;
+- **thumbnails.libretro.com**: the images, stored by official name (No-Intro).
 
-Reconnaître le jeu :
+Recognizing the game:
 
-1. pour les cartouches (NES, SNES, N64, GB, GBA, DS, Mega Drive), l'émulateur calcule le **CRC32**
-   du fichier (en retirant les en-têtes ajoutés par certains formats, et en remettant les ROM N64
-   dans l'ordre d'octets standard) : s'il est dans la base, c'est forcément le bon jeu ;
-2. sinon, il compare les noms en ignorant la ponctuation, « The », les mentions entre parenthèses
-   et l'écriture des numéros (II = 2), puis le sous-titre seul (« Zelda III - A Link to the Past »
-   retrouve « Legend of Zelda, The - A Link to the Past »). Entre plusieurs versions, il préfère
-   la région du fichier, puis France et Europe, jamais une démo ou un prototype.
+1. for cartridges (NES, SNES, N64, GB, GBA, DS, Mega Drive), the emulator computes the file's
+   **CRC32** (removing the headers added by some formats, and putting N64 ROMs back into standard
+   byte order): if it is in the database, it is necessarily the right game;
+2. otherwise, it compares names while ignoring punctuation, "The", parenthesized notes and how
+   numbers are written (II = 2), then the subtitle alone ("Zelda III - A Link to the Past" finds
+   "Legend of Zelda, The - A Link to the Past"). Among several versions, it prefers the file's
+   region, then France and Europe, never a demo or a prototype.
 
-Tout est gardé dans `scraper/` : `games.txt` (ce qui a été trouvé, lisible au Bloc-notes), `db/`,
-`lists/` et `images/`. Sur la fiche d'un jeu, le bouton ↻ relance la recherche, et « Changer la
-jaquette → Trouvées en ligne » propose les jaquettes de toutes les régions, avec une recherche
-libre. La recherche de la bibliothèque trouve aussi les genres, éditeurs et années (« combat »,
-« Capcom », « 1995 »). Réglages dans Paramètres → Jaquettes et infos.
+Everything is kept in `scraper/`: `games.txt` (what was found, readable in Notepad), `db/`,
+`lists/` and `images/`. On a game's page, the ↻ button searches again, and "Change cover → Found
+online" offers covers from every region, with a free-text search. The library search also finds
+genres, publishers and years ("fighting", "Capcom", "1995"). Settings in Settings → Covers and info.
 
-Code : `src/net/Http.cpp` (téléchargements HTTPS avec WinHTTP), `src/scrape/GameDatabase.cpp`
-(lecture des `.rdb` et comparaison des noms), `src/scrape/Scraper.cpp` (le thread et le cache).
+Code: `src/net/Http.cpp` (HTTPS downloads with WinHTTP), `src/scrape/GameDatabase.cpp` (reading
+`.rdb` files and comparing names), `src/scrape/Scraper.cpp` (the thread and the cache).
 
-## Jeu en ligne : comment ça marche
+## Online play: how it works
 
-Il n'y a **aucun serveur ni base de données** : l'émulateur de l'hôte est le salon.
+There is **no server and no database**: the host's emulator is the room.
 
-1. L'hôte crée un salon : l'émulateur découvre son adresse publique (STUN, un service public gratuit)
-   et demande à la box d'ouvrir un port (UPnP).
-2. Il partage le code `EMU-XXXX-XXXX-XXXX-XXXX` (Discord, WhatsApp...) : 16 symboles qui contiennent
-   le numéro du salon et son adresse publique. L'hôte écoute de préférence sur les ports 47800 à
+1. The host creates a room: the emulator discovers its public address (STUN, a free public service)
+   and asks the router to open a port (UPnP).
+2. The host shares the `EMU-XXXX-XXXX-XXXX-XXXX` code (Discord, WhatsApp...): 16 symbols that
+   contain the room number and its public address. The host preferably listens on ports 47800 to
    47809.
-3. L'ami colle le code : son émulateur essaie l'adresse du code et, en même temps, appelle tout son
-   réseau local sur ces ports (« diffusion ») : un hôte sur la même box, sur Radmin ou sur Hamachi
-   répond sans connaître son adresse. Si la box de l'hôte bloque, l'ami reçoit un **code de réponse**
-   à renvoyer : l'hôte le colle et les deux box s'ouvrent l'une vers l'autre (perforation de NAT).
-4. En dernier recours, Radmin VPN, Hamachi ou Tailscale fonctionnent directement. Tailscale ne
-   transmet pas la diffusion : l'hôte donne alors le **code complet** (lien sous le code), qui
-   contient toutes ses adresses.
+3. The friend pastes the code: their emulator tries the address in the code and, at the same time,
+   calls its whole local network on those ports ("broadcast"): a host on the same router, on Radmin
+   or on Hamachi answers without knowing its address. If the host's router blocks it, the friend
+   gets a **reply code** to send back: the host pastes it and both routers open towards each other
+   (NAT hole punching).
+4. As a last resort, Radmin VPN, Hamachi or Tailscale work directly. Tailscale does not forward
+   broadcasts: the host then gives the **full code** (link under the code), which contains all of
+   its addresses.
 
-Pendant tout le salon, chaque liaison envoie 4 « pings » par seconde : leur temps de retour donne le
-ping, et ceux restés sans réponse sur les 5 dernières secondes donnent les **pertes**. La voix
-(chat vocal) passe par le même port : 20 ms de micro compressés par Opus (~60 octets), sans garantie
-d'arrivée ; l'hôte relaie la voix de chacun aux autres, et un morceau perdu est reconstitué grâce à
-la copie de secours (FEC) glissée dans le suivant.
+Throughout the room, each link sends 4 "pings" per second: their round-trip time gives the ping,
+and those left unanswered over the last 5 seconds give the **packet loss**. Voice (voice chat)
+goes through the same port: 20 ms of microphone audio compressed by Opus (~60 bytes), with no
+delivery guarantee; the host relays everyone's voice to the others, and a lost chunk is rebuilt
+from the backup copy (FEC) slipped into the next one.
 
-Dans le salon, l'hôte choisit un jeu : chaque membre vérifie qu'il a **exactement le même fichier**
-grâce à une empreinte de 64 bits (calculée en arrière-plan, gardée dans `hashes.txt`), et apparaît
-« Prêt », « Autre version » ou « Jeu introuvable ».
+In the room, the host picks a game: each member checks that they have **exactly the same file**
+using a 64-bit checksum (computed in the background, kept in `hashes.txt`), and shows up as
+"Ready", "Different version" or "Game not found".
 
-Quand tout le monde est « Prêt », l'hôte lance la partie :
+When everyone is "Ready", the host starts the game:
 
-1. chacun démarre le jeu (sans charger sa sauvegarde personnelle, qui n'est pas écrasée non plus) ;
-2. l'hôte envoie une **photographie complète de son émulateur** (sauvegarde d'état) : tout le monde
-   part exactement du même point ;
-3. tous les émulateurs calculent la même partie avec les mêmes touches. Deux modes, choisis
-   automatiquement par l'hôte :
-   - **rollback** (par défaut) : on n'attend pas les touches de l'ami, on les **devine** (il appuie
-     sûrement sur la même chose qu'avant). Chaque image est photographiée ; quand ses vraies touches
-     arrivent et diffèrent, on revient à la photo de cette image et on recalcule jusqu'à maintenant,
-     sans le son, en une fraction de seconde. Mes touches s'appliquent avec 1 ou 2 images de délai
-     seulement. Si un joueur prend de l'avance, il ralentit un peu pour laisser l'autre le rattraper ;
-   - **délai** : on attend les touches de tout le monde ; les miennes s'appliquent quelques images
-     plus tard (selon le ping). Utilisé quand le rollback serait trop coûteux ou faux : état de plus
-     de 8 Mo (cores 3D), ou core dont les sauvegardes d'état ne sont pas fiables (signalé par le core,
-     ou liste connue : 2048, Mr.Boom). Variable `EMU_NET_FORCE_DELAY=1` pour l'imposer.
+1. everyone starts the game (without loading their personal save, which is not overwritten either);
+2. the host sends a **complete snapshot of its emulator** (a save state): everyone starts from
+   exactly the same point;
+3. all emulators compute the same game with the same inputs. Two modes, chosen automatically by
+   the host:
+   - **rollback** (default): we do not wait for the friend's inputs, we **predict** them (they are
+     probably pressing the same thing as before). Every frame is snapshotted; when their real
+     inputs arrive and differ, we go back to that frame's snapshot and re-simulate up to now,
+     without sound, in a fraction of a second. My inputs apply with only 1 or 2 frames of delay.
+     If a player gets ahead, they slow down a little to let the other catch up;
+   - **delay**: we wait for everyone's inputs; mine apply a few frames later (depending on the
+     ping). Used when rollback would be too costly or incorrect: a state larger than 8 MB (3D
+     cores), or a core whose save states are not reliable (reported by the core, or a known list:
+     2048, Mr.Boom). Variable `EMU_NET_FORCE_DELAY=1` to force it.
 
-   Chaque paquet reprend les touches pas encore confirmées : un paquet perdu est rattrapé par le suivant ;
-4. toutes les 2 secondes, l'empreinte de l'état de chacun est comparée à celle de l'hôte pour
-   détecter une désynchronisation.
+   Each packet repeats the inputs not yet confirmed: a lost packet is made up for by the next one;
+4. every 2 seconds, everyone's state checksum is compared with the host's to detect a desync.
 
-### Câble link (GBA, Game Boy)
+### Link cable (GBA, Game Boy)
 
-Sur une console **portable** (Game Boy, GBA, DS), chaque joueur avait SA console, reliée aux autres
-par câble ou sans fil : quand l'hôte choisit un tel jeu, le salon passe **tout seul** en « Chacun sa
-console » (l'hôte peut revenir à « Même console », pour jouer ensemble à un jeu solo). Les consoles
-de salon (SNES, N64, PS1...) restent en console partagée, où il faut le même fichier. Chacun joue alors **son
-propre jeu avec sa propre sauvegarde** (Rubis d'un côté, Saphir de l'autre) ; seules les données du
-câble voyagent. Chaque joueur choisit son jeu (« Choisir mon jeu » ; automatique s'il porte le même
-nom que celui de l'hôte, ou s'il n'a qu'un jeu de cette console). Si quelqu'un quitte, le câble est
-débranché, mais chacun continue sa partie.
+On a **handheld** (Game Boy, GBA, DS), each player had THEIR OWN console, connected to the others
+by cable or wirelessly: when the host picks such a game, the room switches **on its own** to "Each
+their own console" (the host can go back to "Same console", to play a single-player game together).
+Home consoles (SNES, N64, PS1...) stay on a shared console, where the same file is required. Each
+player then plays **their own game with their own save** (Ruby on one side, Sapphire on the
+other); only the cable data travels. Each player picks their game ("Choose my game"; automatic if
+it has the same name as the host's, or if they only have one game for that system). If someone
+leaves, the cable is unplugged, but everyone keeps playing.
 
-- **GBA** : core **gpSP** (`gpsp_libretro.dll`) chez chaque joueur, jusqu'à 4. Il émule le câble
-  Pokémon 3e génération, l'adaptateur sans fil (Rouge Feu / Vert Feuille / Émeraude) et Advance
-  Wars (détection automatique, option « Link Cable Connectivity »). Ses paquets passent par
-  l'interface libretro *netpacket* et les messages fiables du salon (`src/net/LinkPlay.cpp`).
-- **DS** : core **melonDS DS** (`melondsds_libretro.dll`), sans-fil DS jusqu'à 4. melonDS attend
-  les paquets des autres consoles PENDANT l'image (25 ms au plus) : l'émulateur les lui livre aussitôt
-  (`poll_receive`). Le sans-fil DS exige un ping très faible : il marche sur un même réseau, rarement
-  par Internet.
-- **Game Boy** : core **Gambatte** (`gambatte_libretro.dll`), 2 joueurs. Gambatte relie deux
-  émulateurs par une connexion TCP directe, qui ne traverserait pas les box : sur chaque PC, un
-  relais (`src/net/LinkTunnel.cpp`, dans son propre thread) se fait passer pour l'autre Gambatte et
-  transporte les octets en UDP, de façon fiable (numérotation, accusés de réception, renvois).
-  L'émulateur règle lui-même les options réseau de Gambatte (serveur 56400 chez l'hôte, client
-  vers 127.0.0.1:56401 chez l'ami). Windows peut demander d'autoriser l'émulateur sur le réseau.
+- **GBA**: **gpSP** core (`gpsp_libretro.dll`) on each player's side, up to 4. It emulates the
+  3rd-generation Pokémon cable, the wireless adapter (FireRed / LeafGreen / Emerald) and Advance
+  Wars (automatic detection, "Link Cable Connectivity" option). Its packets go through the libretro
+  *netpacket* interface and the room's reliable messages (`src/net/LinkPlay.cpp`).
+- **DS**: **melonDS DS** core (`melondsds_libretro.dll`), DS wireless with up to 4 players. melonDS
+  waits for packets from the other consoles DURING the frame (25 ms at most): the emulator delivers
+  them right away (`poll_receive`). DS wireless requires a very low ping: it works on the same
+  network, rarely over the Internet.
+- **Game Boy**: **Gambatte** core (`gambatte_libretro.dll`), 2 players. Gambatte connects two
+  emulators through a direct TCP connection, which would not get through routers: on each PC, a
+  relay (`src/net/LinkTunnel.cpp`, in its own thread) pretends to be the other Gambatte and
+  carries the bytes over UDP, reliably (numbering, acknowledgments, resends). The emulator sets
+  Gambatte's network options itself (server 56400 on the host, client to 127.0.0.1:56401 on the
+  friend's side). Windows may ask to allow the emulator on the network.
 
-Test sur un PC : `--net-link` des deux côtés (avec `--net-play N`) ; le core de test imite les deux
-câbles (`tools/testcore/linktest.cpp`) et écrit `LINKTEST ...` dans la console.
+Test on a single PC: `--net-link` on both sides (with `--net-play N`); the test core mimics both
+cables (`tools/testcore/linktest.cpp`) and writes `LINKTEST ...` to the console.
 
-**Point de départ** : dans le salon, l'hôte choisit « Nouvelle partie » (personne ne touche à sa
-sauvegarde), « Ma progression » (sa sauvegarde du jeu, `.srm`), « Sauvegarde auto » ou « Sauvegarde
-F2 ». Sa sauvegarde est chargée chez lui, puis envoyée à tous dans l'état de départ ; à la fin, sa
-progression est enregistrée chez lui seulement. Test : `--net-start 0..3` côté hôte.
+**Starting point**: in the room, the host picks "New game" (nobody's save is touched), "My
+progress" (their in-game save, `.srm`), "Auto save" or "F2 save". The save is loaded on the host's
+side, then sent to everyone in the starting state; at the end, progress is saved on the host's side
+only. Test: `--net-start 0..3` on the host's side.
 
-Pendant une partie en ligne, le menu ne met pas le jeu en pause, et les sauvegardes d'état (F2/F4)
-sont désactivées.
+During an online game, the menu does not pause the game, and save states (F2/F4) are disabled.
 
-### Tester le jeu en ligne seul, sur un seul PC
+### Testing online play alone, on a single PC
 
 ```bash
 powershell -ExecutionPolicy Bypass -File outils/deux-joueurs.ps1
 ```
 
-Le script lance deux émulateurs : le joueur 1 joue au **clavier** (cliquer dans sa fenêtre), le
-joueur 2 avec la **manette n°1**, même quand sa fenêtre est en arrière-plan. Le joueur 2 a son propre
-dossier (`joueur2\`), un autre pseudo, une copie des cores et des BIOS, et partage la bibliothèque du
-joueur 1 sans copier les jeux. Sans manette : ajouter `-SansManette` (le joueur 2 regarde seulement).
-Options équivalentes à la main : `--clavier` et `--manette N`.
+The script starts two emulators: player 1 uses the **keyboard** (click in their window), player 2
+uses **controller #1**, even when their window is in the background. Player 2 has their own folder
+(`joueur2\`), another nickname, a copy of the cores and BIOS, and shares player 1's library without
+copying the games. Without a controller: add `-SansManette` (player 2 only watches). Equivalent
+manual options: `--clavier` and `--manette N`.
 
-Le mot de passe ne circule jamais en clair, mais cette protection est simple : elle éloigne les
-curieux, pas un attaquant déterminé. Les messages du salon ne sont pas chiffrés.
+The password never travels in clear text, but this protection is simple: it keeps the curious
+away, not a determined attacker. Room messages are not encrypted.
 
-Test automatique sur un seul PC : `--net-host code.txt --net-password secret --net-expect 2 --net-game`
-pour l'hôte, `--net-join code.txt --net-password secret` pour chaque invité. Ajouter `--net-play 600`
-des deux côtés lance une vraie partie de 600 images avec des touches simulées (variable
-`EMU_NET_DEBUG=1` pour voir chaque paquet). `--net-latency 100` simule 100 ms de ping (le rollback
-devient visible). À la fin, l'hôte affiche le nombre de retours en arrière et de désynchronisations.
+Automated test on a single PC: `--net-host code.txt --net-password secret --net-expect 2 --net-game`
+for the host, `--net-join code.txt --net-password secret` for each guest. Adding `--net-play 600` on
+both sides runs a real 600-frame game with simulated inputs (variable `EMU_NET_DEBUG=1` to see every
+packet). `--net-latency 100` simulates a 100 ms ping (rollback becomes visible). At the end, the
+host shows the number of rollbacks and desyncs.
 
-Pour vérifier le netcode lui-même, `tools/testcore/` contient un mini core libretro **parfaitement
-déterministe** (`netplay_test_libretro.dll`, 4 carrés déplacés par la croix) : la moindre erreur de
-touches se voit dans l'empreinte de son état. Résultats actuels : 0 désynchronisation à 0, 30, 100 et
-200 ms de ping simulé.
+To check the netcode itself, `tools/testcore/` contains a **perfectly deterministic** tiny libretro
+core (`netplay_test_libretro.dll`, 4 squares moved by the D-pad): the slightest input error shows
+up in its state checksum. Current results: 0 desyncs at 0, 30, 100 and 200 ms of simulated ping.
 
-## Licence
+## License
 
-À choisir avant la publication. La GPLv3 est recommandée, car de nombreux cores libretro sont
-eux-mêmes sous GPL.
+Nexo Retro is free software: you can redistribute it and/or modify it under the terms of the
+**GNU General Public License version 3** (full text in [LICENSE](LICENSE)). It comes WITHOUT ANY
+WARRANTY. GPLv3 was chosen because many libretro cores are themselves GPL-licensed.
+
+Third-party components: SDL3 (zlib), Dear ImGui (MIT), miniupnpc (BSD), Opus (BSD), Vulkan headers
+(Apache 2.0 / MIT), `libretro.h` (MIT), `stb_image.h` (public domain), Plus Jakarta Sans font
+(SIL OFL 1.1, `assets/fonts/OFL.txt`), `System.dat` from libretro-database. libretro cores,
+downloaded separately from libretro's server, each have their own license.
+
+**Disclaimer**: Nexo Retro does not provide any BIOS, firmware, keys or games, and does not help
+obtain them. Only use copies of consoles and games you own. Console and game names mentioned here
+belong to their respective owners; this project is not affiliated with any of them.
