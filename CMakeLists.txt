@@ -167,7 +167,10 @@ add_executable(emulateur
     src/ui/BigPictureScreen.cpp
 )
 # Le fichier produit s'appelle NexoRetro.exe (la cible garde son nom court).
-set_target_properties(emulateur PROPERTIES OUTPUT_NAME NexoRetro)
+# WIN32_EXECUTABLE : une application « fenêtrée » de Windows. Sans ça,
+# Windows ouvre aussi une fenêtre de terminal noire à chaque lancement.
+# (SDL_main.h, dans main.cpp, fait le lien entre WinMain et notre main().)
+set_target_properties(emulateur PROPERTIES OUTPUT_NAME NexoRetro WIN32_EXECUTABLE TRUE)
 target_include_directories(emulateur PRIVATE third_party/libretro third_party/stb)
 target_link_libraries(emulateur PRIVATE SDL3::SDL3-static OpenGL::GL imgui miniupnpc::miniupnpc Vulkan::Headers opus)
 if(WIN32)

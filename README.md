@@ -158,6 +158,8 @@ created in the data folder (`%APPDATA%\NexoRetro` for an installed copy, next to
 otherwise, or in the folder given with `--data <folder>`).
 Each game has its own save folder, `saves/<game name>/`: its in-game save (`.srm`), its save states
 and its screenshots. The game page has an "Open the save folder" button.
+Nexo Retro opens no terminal window: its log is written to `NexoRetro.log` in the data folder
+(handy when a game won't start). For debugging, `NexoRetro.exe --console` also shows it live.
 
 1. Install the emulators: Settings → **Emulators (cores)** → "Install missing cores" (or one by
    one, or from a game's page). They come from libretro's official server.

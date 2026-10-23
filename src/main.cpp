@@ -82,6 +82,7 @@ void printUsage()
         "        [--frames <n> [--screenshot <fichier.bmp>]]   (tests automatiques)\n"
         "        [--screen home|library|game|covers|add|bios|friends|settings|pads|infos] [--menu]\n"
         "        [--clavier | --manette N]   (deux émulateurs sur le même PC)\n"
+        "        [--console]   (affiche le journal dans un terminal ; il est aussi dans NexoRetro.log)\n"
         "\n"
         "Sans argument, ouvre la bibliothèque de jeux. Le dossier de données\n"
         "(cores, bios, roms, saves) est par défaut celui de l'exécutable, ou\n"
@@ -127,6 +128,8 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
             out.simulatedLatencyMs = std::max(0, std::atoi(argv[++i]));
         else if (arg == "--test-resume")
             out.testResume = true;
+        else if (arg == "--console")
+            ; // (déjà traité par setupConsole, au tout début de main)
         else if (arg == "--controls")
             out.openControls = true;
         else if (arg == "--test-play")
@@ -163,14 +166,73 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
     return true;
 }
 
+// Nexo Retro est une application fenêtrée : Windows ne lui donne pas de
+// terminal. Les messages (SDL_Log) vont quand même :
+// - dans le tuyau ou le fichier choisi par le programme qui nous lance
+//   (tests automatiques : "NexoRetro.exe ... | grep ...") ;
+// - dans un terminal, seulement si on le demande avec --console (débogage) ;
+// - et toujours dans NexoRetro.log, dans le dossier des données (voir startLogFile).
+void setupConsole(int argc, char** argv)
+{
+#ifdef _WIN32
+    const HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
+    const bool redirected = err && err != INVALID_HANDLE_VALUE && GetFileType(err) != FILE_TYPE_UNKNOWN;
+    bool wanted = false;
+    for (int i = 1; i < argc; ++i)
+        wanted = wanted || std::string_view(argv[i]) == "--console";
+    if (!redirected && wanted) {
+        // Le terminal d'où on a été lancé, sinon un nouveau.
+        if (!AttachConsole(ATTACH_PARENT_PROCESS))
+            AllocConsole();
+        // [C++] freopen rebranche stdout/stderr (les FILE* du C) sur le terminal.
+        FILE* f = nullptr;
+        freopen_s(&f, "CONOUT$", "w", stdout);
+        freopen_s(&f, "CONOUT$", "w", stderr);
+    }
+    // Le terminal de Windows n'affiche pas l'UTF-8 par défaut (accents illisibles).
+    SetConsoleOutputCP(CP_UTF8);
+#else
+    (void)argc;
+    (void)argv;
+#endif
+}
+
+// Le journal : chaque message est aussi écrit dans <données>/NexoRetro.log
+// (remplacé à chaque lancement). C'est lui qu'on demande à quelqu'un dont
+// le jeu ne se lance pas.
+FILE* g_logFile = nullptr;
+SDL_LogOutputFunction g_defaultLog = nullptr;
+
+void SDLCALL logToFile(void* userdata, int category, SDL_LogPriority priority, const char* message)
+{
+    if (g_logFile) {
+        std::fputs(message, g_logFile);
+        std::fputc('\n', g_logFile);
+        std::fflush(g_logFile); // (écrit tout de suite : utile si l'appli plante)
+    }
+    if (g_defaultLog)
+        g_defaultLog(userdata, category, priority, message);
+}
+
+void startLogFile(const fs::path& dataDir)
+{
+    std::error_code ec;
+    fs::create_directories(dataDir, ec);
+#ifdef _WIN32
+    if (_wfopen_s(&g_logFile, (dataDir / "NexoRetro.log").c_str(), L"w") != 0)
+        g_logFile = nullptr;
+#else
+    g_logFile = std::fopen((dataDir / "NexoRetro.log").c_str(), "w");
+#endif
+    g_defaultLog = SDL_GetDefaultLogOutputFunction();
+    SDL_SetLogOutputFunction(logToFile, nullptr);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
-#ifdef _WIN32
-    // La console Windows n'affiche pas l'UTF-8 par défaut (accents illisibles).
-    SetConsoleOutputCP(CP_UTF8);
-#endif
+    setupConsole(argc, argv);
 
     AppOptions options;
     if (!parseArgs(argc, argv, options)) {
@@ -179,6 +241,7 @@ int main(int argc, char** argv)
     }
     if (options.dataDir.empty())
         options.dataDir = defaultDataDir(); // à côté de l'exe, ou %APPDATA%\NexoRetro si installé
+    startLogFile(options.dataDir);
     // Une fenêtre qui n'écoute qu'une manette doit la lire même quand elle
     // n'est pas au premier plan (l'autre fenêtre a le clavier).
     if (options.inputSource == Input::Source::Gamepad)
@@ -197,6 +260,9 @@ int main(int argc, char** argv)
         code = app.run();
     }
     SDL_Quit();
+    if (g_logFile)
+        std::fclose(g_logFile);
+    g_logFile = nullptr;
     // Une mise à jour à installer ? Tout est fermé et enregistré : on lance
     // l'installateur, qui remplacera le programme puis le relancera.
     AppUpdater::runPendingInstaller();

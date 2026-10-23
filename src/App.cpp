@@ -1517,7 +1517,7 @@ bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::pa
         m_launchError = core->loadError();
         core.reset(); // détruit le core maintenant, tant que la vidéo existe
         restartGraphics();
-        m_ui.notify(m_launchError.empty() ? "Impossible de lancer le jeu (voir la console pour le détail)"
+        m_ui.notify(m_launchError.empty() ? "Impossible de lancer le jeu (détails dans NexoRetro.log)"
                                           : "Impossible de lancer le jeu : " + m_launchError);
         return false;
     }

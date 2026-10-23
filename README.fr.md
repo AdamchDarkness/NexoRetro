@@ -158,6 +158,9 @@ sont créés dans le dossier des données (`%APPDATA%\NexoRetro` pour une copie 
 l'exécutable sinon, ou dans le dossier donné avec `--data <dossier>`).
 Chaque jeu a son dossier de sauvegarde, `saves/<nom du jeu>/` : sa sauvegarde (`.srm`), ses
 sauvegardes d'état et ses captures. La fiche du jeu a un bouton « Ouvrir le dossier de sauvegarde ».
+Nexo Retro n'ouvre aucune fenêtre de terminal : son journal est écrit dans `NexoRetro.log`, dans le
+dossier des données (utile quand un jeu ne se lance pas). Pour déboguer, `NexoRetro.exe --console`
+l'affiche aussi en direct.
 
 1. Installez les émulateurs : Paramètres → **Émulateurs (cores)** → « Installer les cores manquants »
    (ou un par un, ou depuis la fiche d'un jeu). Ils viennent du serveur officiel de libretro.
