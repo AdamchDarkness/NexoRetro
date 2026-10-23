@@ -85,6 +85,9 @@ FetchContent_MakeAvailable(miniupnpc)
 # Le codec libre de référence pour la voix sur Internet (Discord, WebRTC) :
 # 20 ms de voix tiennent dans environ 60 octets.
 set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+# Opus choisit lui-même son runtime C : on lui demande le même que le nôtre
+# (statique, /MT), sinon conflits à l'édition de liens (LNK4098, LNK4217).
+set(OPUS_STATIC_RUNTIME ON CACHE BOOL "" FORCE)
 set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
