@@ -28,8 +28,25 @@ struct Settings {
     bool autoSaveState = true;
     // Jaquettes et informations
     bool autoScrape = true; // chercher tout seul les nouveaux jeux
-    // Bibliothèque : 0 = grille, 1 = liste, 2 = carrousel
+    // Bibliothèque : 0 = grille, 1 = liste, 2 = carrousel, 3 = boîtes 3D,
+    // 4 = cartouches, 5 = CD
     int libraryView = 0;
+    // Apparence (Paramètres > Apparence, voir ui/Themes.hpp). Les fichiers
+    // (image, police) sont rangés dans <données>/themes/ : on garde leur
+    // chemin relatif à ce dossier.
+    std::string theme = "clair";      // "clair", "sombre", "oled", "synthwave", "gameboy"...
+    std::string accentColor;          // "#RRGGBB" ; vide = celle du thème
+    int background = 0;               // 0 = celui du thème, 1 = couleur, 2 = dégradé, 3 = image
+    std::string groundColor;          // fond "couleur" ; vide = celle du thème
+    std::string gradientFrom = "#5865F2";
+    std::string gradientTo = "#EB459E";
+    int gradientAngle = 135;          // en degrés : 0 = de gauche à droite, 90 = de haut en bas
+    std::string backgroundImage;      // ex. "fond-1712345678.png"
+    int backgroundDim = 55;           // voile sur l'image, 0 à 90 %
+    std::string uiFont;               // ex. "fonts/MaPolice.ttf" ; vide = Plus Jakarta Sans
+    bool uiSounds = true;             // sons de l'interface (jamais pendant un jeu)
+    int uiSoundVolume = 40;           // 0 à 100 %
+    int uiSoundPack = 0;              // 0 = celui du thème, 1 = doux, 2 = 8 bits, 3 = arcade
     // Émulateurs (cores) : chercher les mises à jour au démarrage (une fois par jour)
     bool coreAutoUpdate = true;
     // Jeu en ligne

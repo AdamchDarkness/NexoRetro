@@ -13,7 +13,8 @@
 #include <vector>
 
 // Ce que l'utilisateur voulait faire en ouvrant la fenêtre.
-enum class DialogPurpose { AddGameFiles, AddGameFolder, AddBiosFile, AddBiosFolder, ChooseCover, ImportSave, ChooseExternal, ImportSystemFiles };
+enum class DialogPurpose { AddGameFiles, AddGameFolder, AddBiosFile, AddBiosFolder, ChooseCover, ImportSave, ChooseExternal, ImportSystemFiles,
+                           ChooseBackground, ChooseFont };
 
 struct DialogResult {
     DialogPurpose purpose;
@@ -24,6 +25,8 @@ class FileDialogs {
 public:
     void openFiles(SDL_Window* window, DialogPurpose purpose, bool images, bool multiple);
     void openFolder(SDL_Window* window, DialogPurpose purpose);
+    // Une police (.ttf, .otf).
+    void openFonts(SDL_Window* window, DialogPurpose purpose);
 
     // Les résultats arrivés depuis le dernier appel.
     std::vector<DialogResult> poll();

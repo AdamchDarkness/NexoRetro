@@ -1,10 +1,12 @@
 // Bibliothèque : catégories, recherche, filtres (genre, année, joueurs,
-// éditeur), tri, et trois façons de voir ses jeux : grille de jaquettes,
-// liste détaillée ou carrousel.
+// éditeur), tri, et six façons de voir ses jeux : grille de jaquettes,
+// liste détaillée, carrousel, boîtes 3D, cartouches ou CD.
 
 #include "../Lang.hpp"
 #include "Screens.hpp"
 #include "Widgets.hpp"
+
+#include <imgui_internal.h> // ImGui::ShadeVertsLinearColorGradientKeepAlpha
 
 #include <algorithm>
 #include <cctype>
@@ -109,6 +111,181 @@ bool filterCombo(const char* id, const char* allLabel, const std::set<std::strin
         return false;
     current = index == 0 ? std::string() : std::string(items[static_cast<size_t>(index)]);
     return true;
+}
+
+// --- Vignettes en objets : boîtes 3D, cartouches, CD ---------------------------------
+// Pas de vraie 3D ici : des formes plates (quadrilatères, cercles) et des
+// dégradés suffisent à donner l'illusion du relief.
+
+enum class TileStyle { Box, Cartridge, Disc };
+
+// Recolore en dégradé (de c0 en p0 à c1 en p1) tout ce qui a été dessiné
+// depuis le sommet n° first. Garde la transparence de chaque sommet.
+void shade(ImDrawList* dl, int first, ImVec2 p0, ImVec2 p1, ImU32 c0, ImU32 c1)
+{
+    ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, first, dl->VtxBuffer.Size, p0, p1, c0, c1);
+}
+
+// Une boîte de jeu posée de biais : la tranche à gauche fuit vers
+// l'arrière (plus courte), la jaquette en face avant, un reflet de plastique.
+void drawBox(const UiContext& ctx, ImDrawList* dl, const Game& game, ImVec2 min, ImVec2 max)
+{
+    const float w = max.x - min.x;
+    const float h = max.y - min.y;
+    const float spine = w * 0.11f; // largeur de la tranche
+    const float skew = h * 0.035f; // de combien elle rétrécit en haut et en bas
+    const ImVec2 front(min.x + spine, min.y);
+    draw::shadow(dl, ImVec2(min.x + spine * 0.5f, min.y + px(4.0f)), max, px(4.0f), px(14.0f), px(9.0f), 70);
+
+    // La tranche : la couleur de la jaquette, assombrie, et une bande de la
+    // couleur de la console. edgeY : la hauteur d'un point de la tranche
+    // (f = 0 en haut, 1 en bas), à gauche (au fond) ou à droite (devant).
+    const ImU32 base = Covers::colorFor(game);
+    auto edgeY = [&](bool left, float f) { return left ? min.y + skew + f * (h - 2 * skew) : min.y + f * h; };
+    dl->AddQuadFilled(ImVec2(min.x, edgeY(true, 0)), front, ImVec2(front.x, max.y), ImVec2(min.x, edgeY(true, 1)),
+                      theme::mix(base, IM_COL32_BLACK, 0.45f));
+    dl->AddQuadFilled(ImVec2(min.x, edgeY(true, 0.07f)), ImVec2(front.x, edgeY(false, 0.07f)),
+                      ImVec2(front.x, edgeY(false, 0.15f)), ImVec2(min.x, edgeY(true, 0.15f)),
+                      theme::rgb(game.system->color));
+    // La face avant : la jaquette (avec son titre si elle est générée).
+    ctx.covers.draw(dl, front, max, game, ctx.userData, px(3.0f), 16.0f);
+    // Le reflet du boîtier : un voile blanc dans le coin en haut à gauche.
+    dl->AddRectFilledMultiColor(front, max, theme::withAlpha(theme::White, 60), theme::withAlpha(theme::White, 0),
+                                theme::withAlpha(theme::White, 0), theme::withAlpha(theme::White, 18));
+    // L'arête entre la tranche et la face, qui accroche la lumière.
+    dl->AddLine(front, ImVec2(front.x, max.y), theme::withAlpha(theme::White, 90), px(1.0f));
+}
+
+// Une cartouche : coque en plastique au coin coupé, stries pour les doigts,
+// la jaquette en étiquette, et la fente du connecteur en bas.
+void drawCartridge(const UiContext& ctx, ImDrawList* dl, const Game& game, ImVec2 min, ImVec2 max)
+{
+    const float w = max.x - min.x;
+    const float h = max.y - min.y;
+    const float cut = w * 0.14f;
+    const float bevel = px(5.0f);
+    draw::shadow(dl, min, max, bevel, px(14.0f), px(8.0f), 60);
+    // La coque : un polygone convexe (le coin coupé en haut à droite).
+    const ImU32 plastic = theme::mix(theme::rgb(0x70737D), theme::rgb(game.system->color), 0.18f);
+    const int first = dl->VtxBuffer.Size;
+    dl->PathLineTo(ImVec2(min.x + bevel, min.y));
+    dl->PathLineTo(ImVec2(max.x - cut, min.y));
+    dl->PathLineTo(ImVec2(max.x, min.y + cut));
+    dl->PathLineTo(ImVec2(max.x, max.y - bevel));
+    dl->PathLineTo(ImVec2(max.x - bevel, max.y));
+    dl->PathLineTo(ImVec2(min.x + bevel, max.y));
+    dl->PathLineTo(ImVec2(min.x, max.y - bevel));
+    dl->PathLineTo(ImVec2(min.x, min.y + bevel));
+    dl->PathFillConvex(theme::White);
+    // Éclairée par le haut : plus claire en haut qu'en bas.
+    shade(dl, first, min, ImVec2(min.x, max.y), theme::mix(plastic, theme::White, 0.18f), theme::mix(plastic, IM_COL32_BLACK, 0.25f));
+    // Les stries du haut.
+    const ImU32 groove = theme::mix(plastic, IM_COL32_BLACK, 0.3f);
+    for (int i = 0; i < 3; ++i) {
+        const float y = min.y + h * (0.045f + 0.03f * static_cast<float>(i));
+        dl->AddLine(ImVec2(min.x + w * 0.16f, y), ImVec2(max.x - w * 0.28f, y), groove, px(1.5f));
+    }
+    // L'étiquette, posée dans un léger creux.
+    const ImVec2 labelMin(min.x + w * 0.1f, min.y + h * 0.17f);
+    const ImVec2 labelMax(max.x - w * 0.1f, max.y - h * 0.2f);
+    draw::rect(dl, ImVec2(labelMin.x - px(3.0f), labelMin.y - px(3.0f)), ImVec2(labelMax.x + px(3.0f), labelMax.y + px(3.0f)),
+               theme::mix(plastic, IM_COL32_BLACK, 0.22f), px(6.0f));
+    ctx.covers.draw(dl, labelMin, labelMax, game, ctx.userData, px(4.0f), 14.0f);
+    // La fente du connecteur, et un petit triangle en relief ("insérer ici").
+    draw::rect(dl, ImVec2(min.x + w * 0.22f, max.y - h * 0.11f), ImVec2(max.x - w * 0.22f, max.y - h * 0.06f),
+               theme::mix(plastic, IM_COL32_BLACK, 0.45f), px(3.0f));
+    const float cx = (min.x + max.x) / 2;
+    const float ty = max.y - h * 0.155f;
+    dl->AddTriangleFilled(ImVec2(cx - px(5.0f), ty + px(3.0f)), ImVec2(cx + px(5.0f), ty + px(3.0f)), ImVec2(cx, ty - px(3.0f)),
+                          theme::mix(plastic, theme::White, 0.3f));
+    // Le bord éclairé de la coque.
+    dl->AddLine(ImVec2(min.x + bevel, min.y + px(1.0f)), ImVec2(max.x - cut, min.y + px(1.0f)),
+                theme::withAlpha(theme::White, 80), px(1.0f));
+}
+
+// Un CD : disque argenté aux reflets irisés, la jaquette en étiquette ronde,
+// le moyeu transparent et le trou central.
+void drawDisc(const UiContext& ctx, ImDrawList* dl, const Game& game, ImVec2 min, ImVec2 max)
+{
+    const float r = std::min(max.x - min.x, max.y - min.y) / 2;
+    const ImVec2 c((min.x + max.x) / 2, (min.y + max.y) / 2);
+    draw::shadow(dl, ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), r, px(14.0f), px(8.0f), 60);
+    // Le disque argenté (dégradé en diagonale).
+    int first = dl->VtxBuffer.Size;
+    dl->AddCircleFilled(c, r, theme::White, 96);
+    shade(dl, first, ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), theme::rgb(0xEEF0F4), theme::rgb(0x8E949E));
+    // Les reflets arc-en-ciel : des "parts de tarte" de couleur, très transparentes.
+    static const unsigned kSheen[] = {0x7DD3FC, 0xF0ABFC, 0xFDE68A, 0x86EFAC};
+    for (int i = 0; i < 4; ++i) {
+        const float a0 = -0.6f + 0.35f * static_cast<float>(i);
+        const float a1 = a0 + 0.3f;
+        for (const float flip : {0.0f, 3.14159265f})
+            dl->AddTriangleFilled(c, ImVec2(c.x + std::cos(a0 + flip) * r, c.y + std::sin(a0 + flip) * r),
+                                  ImVec2(c.x + std::cos(a1 + flip) * r, c.y + std::sin(a1 + flip) * r),
+                                  theme::rgb(kSheen[i], 70));
+    }
+    // L'étiquette : la jaquette découpée en rond (un arrondi égal à la
+    // moitié du carré donne un cercle), ou la jaquette générée.
+    const float label = r * 0.94f;
+    const ImVec2 lmin(c.x - label, c.y - label), lmax(c.x + label, c.y + label);
+    if (!ctx.covers.drawArt(dl, lmin, lmax, game, ctx.userData, label)) {
+        const ImU32 color = Covers::colorFor(game);
+        first = dl->VtxBuffer.Size;
+        dl->AddCircleFilled(c, label, theme::White, 96);
+        shade(dl, first, lmin, lmax, theme::mix(color, theme::White, 0.12f), theme::mix(color, IM_COL32_BLACK, 0.2f));
+        // Le nom de la console en haut, le titre en bas, centrés.
+        const float tagSize = std::max(9.0f, r / theme::scale() * 0.11f);
+        const ImVec2 ts = draw::measure(Weight::Bold, tagSize, game.system->shortName);
+        draw::text(dl, ImVec2(c.x - ts.x / 2, c.y - r * 0.62f), Weight::Bold, tagSize, theme::withAlpha(theme::CoverInk, 215),
+                   game.system->shortName);
+        const float titleSize = std::max(11.0f, r / theme::scale() * 0.13f);
+        const float maxW = r * 1.25f;
+        const float tw = std::min(maxW, draw::measure(Weight::ExtraBold, titleSize, game.title).x);
+        draw::textEllipsis(dl, ImVec2(c.x - tw / 2, c.y + r * 0.42f), Weight::ExtraBold, titleSize, theme::CoverInk, game.title, maxW);
+    }
+    dl->AddCircle(c, label, theme::withAlpha(IM_COL32_BLACK, 40), 96, px(1.0f));
+    // Le moyeu transparent, son anneau, et le trou (qui laisse voir le fond).
+    dl->AddCircleFilled(c, r * 0.3f, theme::withAlpha(theme::rgb(0xDDE1E7), 235), 48);
+    dl->AddCircle(c, r * 0.3f, theme::withAlpha(IM_COL32_BLACK, 35), 48, px(1.0f));
+    dl->AddCircle(c, r * 0.2f, theme::withAlpha(theme::White, 160), 48, px(1.0f));
+    dl->AddCircleFilled(c, r * 0.11f, theme::Ground, 32);
+    dl->AddCircle(c, r * 0.11f, theme::withAlpha(IM_COL32_BLACK, 50), 32, px(1.0f));
+}
+
+// Une vignette cliquable en objet, avec titre et sous-titre dessous (comme
+// coverTile, Common.cpp).
+TileResult objectTile(const UiContext& ctx, const Game& game, float width, float artH, TileStyle style,
+                      const std::string& subtitle)
+{
+    TileResult result;
+    const float textBlock = px(42.0f);
+    ImGui::PushID(&game);
+    result.clicked = ImGui::InvisibleButton("##tile", ImVec2(width, artH + px(10.0f) + textBlock));
+    const bool hovered = ImGui::IsItemHovered();
+    result.doubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+    ImGui::PopID();
+    if (hovered)
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    // Au survol, l'objet monte un peu.
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    const ImGuiID key = ImGui::GetItemID();
+    float lift = storage->GetFloat(key, 0.0f);
+    lift += ((hovered ? 1.0f : 0.0f) - lift) * std::min(1.0f, ImGui::GetIO().DeltaTime * 14.0f);
+    storage->SetFloat(key, lift);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 pos = ImGui::GetItemRectMin();
+    const ImVec2 min(pos.x, pos.y - px(6.0f) * lift);
+    const ImVec2 max(min.x + width, min.y + artH);
+    switch (style) {
+    case TileStyle::Box: drawBox(ctx, dl, game, min, max); break;
+    case TileStyle::Cartridge: drawCartridge(ctx, dl, game, min, max); break;
+    case TileStyle::Disc: drawDisc(ctx, dl, game, min, max); break;
+    }
+    const float y = pos.y + artH + px(10.0f);
+    draw::textEllipsis(dl, ImVec2(pos.x, y), Weight::Bold, 14.0f, theme::Ink, game.title, width);
+    draw::textEllipsis(dl, ImVec2(pos.x, y + px(20.0f)), Weight::Medium, 12.0f, theme::Muted, subtitle, width);
+    return result;
 }
 
 } // namespace
@@ -220,7 +397,7 @@ void LibraryScreen::draw(UiContext& ctx)
     const float searchW = 300.0f;
     const char* filtersLabel = "Filtres";
     const float filtersW = draw::measure(Weight::Bold, 14.0f, filtersLabel).x / theme::scale() + 18.0f * 2 + 17.0f + 8.0f;
-    const float viewsW = 3 * 32.0f + 6.0f;
+    const float viewsW = 68.0f; // le bouton « Vue » (icône de la vue + flèche)
     ImGui::SetCursorPos(
         ImVec2(headerPos.x + width - px(searchW + 10.0f + filtersW + 10.0f + viewsW), headerPos.y + px(18.0f)));
     searchField("##search", m_search, sizeof(m_search), "Rechercher un jeu", searchW, ctx.nav.focusSearch);
@@ -241,7 +418,7 @@ void LibraryScreen::draw(UiContext& ctx)
         dl->AddCircleFilled(c, px(10.0f), theme::Accent);
         const std::string n = std::to_string(activeFilters);
         const ImVec2 ns = draw::measure(Weight::Bold, 11.0f, n);
-        draw::text(dl, ImVec2(c.x - ns.x / 2, c.y - ns.y / 2), Weight::Bold, 11.0f, theme::Surface, n);
+        draw::text(dl, ImVec2(c.x - ns.x / 2, c.y - ns.y / 2), Weight::Bold, 11.0f, theme::OnAccent, n);
     }
     sameLine();
     drawViewSwitch(ctx);
@@ -354,41 +531,84 @@ void LibraryScreen::resetFilters()
     m_sort = 0;
 }
 
-// Les trois vues, dans une seule pilule : l'icône choisie sur un rond noir.
+// Les six vues, dans le même ordre que Settings::libraryView.
+struct LibraryView {
+    draw::Icon icon;
+    const char* label;
+};
+constexpr LibraryView kViews[] = {{draw::Icon::Grid, "Grille de jaquettes"}, {draw::Icon::List, "Liste détaillée"},
+                                  {draw::Icon::Carousel, "Carrousel"},       {draw::Icon::Box, "Boîtes 3D"},
+                                  {draw::Icon::Cartridge, "Cartouches"},     {draw::Icon::Disc, "CD"}};
+
+const char* libraryViewName(int view)
+{
+    return kViews[std::clamp(view, 0, static_cast<int>(std::size(kViews)) - 1)].label;
+}
+
+// Le bouton « Vue » : l'icône de la vue choisie et une flèche. Il ouvre un
+// petit menu avec les six vues (l'en-tête reste léger).
 void LibraryScreen::drawViewSwitch(UiContext& ctx)
 {
-    struct View {
-        draw::Icon icon;
-        const char* tip;
-    };
-    static const View views[] = {{draw::Icon::Grid, "Grille de jaquettes"},
-                                 {draw::Icon::List, "Liste détaillée"},
-                                 {draw::Icon::Carousel, "Carrousel"}};
+    const int current = std::clamp(ctx.settings.libraryView, 0, static_cast<int>(std::size(kViews)) - 1);
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 p = ImGui::GetCursorScreenPos();
-    const float item = px(32.0f);
-    const float h = px(38.0f);
-    draw::rect(dl, p, ImVec2(p.x + item * 3 + px(6.0f), p.y + h), theme::Surface, h / 2, theme::Hairline);
-    for (int i = 0; i < 3; ++i) {
-        const ImVec2 min(p.x + px(3.0f) + item * i, p.y + (h - item) / 2);
-        ImGui::SetCursorScreenPos(min);
-        ImGui::PushID(i);
-        if (ImGui::InvisibleButton("##view", ImVec2(item, item))) {
-            ctx.settings.libraryView = i;
-            ctx.settingsChanged();
-        }
-        const bool hovered = ImGui::IsItemHovered();
-        if (hovered)
-            ImGui::SetTooltip("%s", std::string(lang::tr(views[i].tip)).c_str());
-        ImGui::PopID();
-        const bool selected = ctx.settings.libraryView == i;
-        if (selected || hovered)
-            dl->AddCircleFilled(ImVec2(min.x + item / 2, min.y + item / 2), item / 2, selected ? theme::Ink : theme::Ground);
-        draw::icon(dl, views[i].icon, ImVec2(min.x + px(8.0f), min.y + px(8.0f)), px(16.0f),
-                   selected ? theme::Surface : theme::Muted);
+    const ImVec2 size = px(68.0f, 38.0f);
+    const bool clicked = ImGui::InvisibleButton("##viewMenu", size);
+    const bool hovered = ImGui::IsItemHovered();
+    if (hovered)
+        ImGui::SetTooltip("%s", std::string(lang::tr("Vue")).c_str());
+    const ImVec2 p = ImGui::GetItemRectMin();
+    draw::rect(dl, p, ImVec2(p.x + size.x, p.y + size.y), hovered ? theme::SurfaceAlt : theme::Surface, size.y / 2,
+               theme::Hairline);
+    draw::icon(dl, kViews[current].icon, ImVec2(p.x + px(14.0f), p.y + px(10.0f)), px(18.0f), theme::Ink);
+    draw::icon(dl, draw::Icon::ChevronDown, ImVec2(p.x + px(38.0f), p.y + px(11.0f)), px(16.0f), theme::Muted);
+    if (clicked || ctx.nav.openViews) {
+        ImGui::OpenPopup("##views");
+        ctx.nav.openViews = false;
     }
-    ImGui::SetCursorScreenPos(p);
-    ImGui::Dummy(ImVec2(item * 3 + px(6.0f), h));
+
+    // Le menu, aligné à droite sous le bouton.
+    const float menuW = px(250.0f);
+    ImGui::SetNextWindowPos(ImVec2(p.x + size.x - menuW, p.y + size.y + px(8.0f)), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(menuW, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, theme::Surface);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, px(8.0f, 8.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, px(18.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, px(0.0f, 2.0f));
+    if (ImGui::BeginPopup("##views")) {
+        ImDrawList* pdl = ImGui::GetWindowDrawList();
+        for (int i = 0; i < static_cast<int>(std::size(kViews)); ++i) {
+            if (i == 3) {
+                // Un trait entre les vues "à plat" et les vues en objets.
+                const ImVec2 q = ImGui::GetCursorScreenPos();
+                pdl->AddLine(ImVec2(q.x + px(10.0f), q.y + px(4.0f)), ImVec2(q.x + menuW - px(26.0f), q.y + px(4.0f)),
+                             theme::Divider, px(1.0f));
+                ImGui::Dummy(px(1.0f, 8.0f));
+            }
+            ImGui::PushID(i);
+            const bool picked = ImGui::InvisibleButton("##view", ImVec2(menuW - px(16.0f), px(40.0f)));
+            const bool over = ImGui::IsItemHovered();
+            ImGui::PopID();
+            const ImVec2 m = ImGui::GetItemRectMin();
+            const bool selected = i == current;
+            if (selected || over)
+                draw::rect(pdl, m, ImVec2(m.x + menuW - px(16.0f), m.y + px(40.0f)),
+                           selected ? theme::AccentSoft : theme::SurfaceAlt, px(12.0f));
+            const ImU32 color = selected ? theme::AccentInk : theme::Ink;
+            draw::icon(pdl, kViews[i].icon, ImVec2(m.x + px(12.0f), m.y + px(11.0f)), px(18.0f), color);
+            const ImVec2 ts = draw::measure(Weight::Bold, 14.0f, kViews[i].label);
+            draw::text(pdl, ImVec2(m.x + px(42.0f), m.y + (px(40.0f) - ts.y) / 2), Weight::Bold, 14.0f, color, kViews[i].label);
+            if (selected)
+                draw::icon(pdl, draw::Icon::Check, ImVec2(m.x + menuW - px(44.0f), m.y + px(11.0f)), px(18.0f), theme::Accent);
+            if (picked) {
+                ctx.settings.libraryView = i;
+                ctx.settingsChanged();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor();
 }
 
 // La fenêtre « Trier et filtrer », sous le bouton Filtres (topRight : son coin).
@@ -478,11 +698,14 @@ bool LibraryScreen::removablePill(const std::string& label)
 
 void LibraryScreen::drawGrid(UiContext& ctx, const std::vector<const Game*>& games)
 {
+    // La grille sert aussi aux vues en objets (3 = boîtes, 4 = cartouches,
+    // 5 = CD) : seule la forme des vignettes change.
+    const int view = ctx.settings.libraryView;
     const float gridW = stableWidth();
-    const float gapX = px(22.0f);
+    const float gapX = px(view == 5 ? 26.0f : 22.0f);
     const int columns = std::max(2, static_cast<int>((gridW + gapX) / (px(170.0f) + gapX)));
     const float tileW = (gridW - gapX * (columns - 1)) / columns;
-    const float tileH = tileW * 1.36f;
+    const float tileH = tileW * (view == 4 ? 1.12f : view == 5 ? 1.0f : 1.36f);
     for (size_t i = 0; i < games.size(); ++i) {
         if (i % columns != 0)
             ImGui::SameLine(0.0f, gapX);
@@ -492,7 +715,16 @@ void LibraryScreen::drawGrid(UiContext& ctx, const std::vector<const Game*>& gam
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + px(6.0f)); // place pour l'effet de survol
         const Game& g = *games[i];
         const GameRecord* r = ctx.userData.find(g.path);
-        const TileResult t = coverTile(ctx, g, tileW, tileH, formatAgo(r ? r->lastPlayed : 0), 18.0f);
+        const std::string subtitle = formatAgo(r ? r->lastPlayed : 0);
+        TileResult t;
+        if (view == 3)
+            t = objectTile(ctx, g, tileW, tileH, TileStyle::Box, subtitle);
+        else if (view == 4)
+            t = objectTile(ctx, g, tileW, tileH, TileStyle::Cartridge, subtitle);
+        else if (view == 5)
+            t = objectTile(ctx, g, tileW, tileH, TileStyle::Disc, subtitle);
+        else
+            t = coverTile(ctx, g, tileW, tileH, subtitle, 18.0f);
         if (t.doubleClicked && ctx.library.hasCore(g))
             ctx.play(g, {});
         else if (t.clicked)

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <string>
@@ -84,10 +85,109 @@ ImU32 withAlpha(ImU32 color, int alpha)
     return (color & ~IM_COL32_A_MASK) | (static_cast<ImU32>(alpha) << IM_COL32_A_SHIFT);
 }
 
+ImU32 mix(ImU32 a, ImU32 b, float t)
+{
+    t = std::clamp(t, 0.0f, 1.0f);
+    // Chaque composante (rouge, vert, bleu, opacité) est rangée sur 8 bits :
+    // on les sépare avec un décalage, on les mélange, puis on les recolle.
+    ImU32 out = 0;
+    for (int shift = 0; shift < 32; shift += 8) {
+        const float ca = static_cast<float>((a >> shift) & 0xFF);
+        const float cb = static_cast<float>((b >> shift) & 0xFF);
+        out |= static_cast<ImU32>(ca + (cb - ca) * t + 0.5f) << shift;
+    }
+    return out;
+}
+
+float luminance(ImU32 color)
+{
+    // La formule des normes du web (WCAG) : l'œil voit le vert bien plus
+    // clair que le bleu. Les composantes sont d'abord "délinéarisées".
+    auto channel = [](ImU32 c, int shift) {
+        const float v = static_cast<float>((c >> shift) & 0xFF) / 255.0f;
+        return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
+    };
+    return 0.2126f * channel(color, IM_COL32_R_SHIFT) + 0.7152f * channel(color, IM_COL32_G_SHIFT) +
+           0.0722f * channel(color, IM_COL32_B_SHIFT);
+}
+
+void setPalette(const Palette& p)
+{
+    Ground = p.ground;
+    Surface = p.surface;
+    SurfaceAlt = p.surfaceAlt;
+    Ink = p.ink;
+    InkHover = p.inkHover;
+    Body = p.body;
+    Muted = p.muted;
+    Hairline = p.hairline;
+    Divider = p.divider;
+    Dashed = p.dashed;
+    Track = p.track;
+    Placeholder = p.placeholder;
+    Accent = p.accent;
+    AccentHover = p.accentHover;
+    AccentSoft = p.accentSoft;
+    AccentInk = p.accentInk;
+    OnAccent = p.onAccent;
+    Success = p.success;
+    SuccessSoft = p.successSoft;
+    Warning = p.warning;
+    WarningSoft = p.warningSoft;
+    Danger = p.danger;
+    DangerSoft = p.dangerSoft;
+    NeutralSoft = p.neutralSoft;
+    Favorite = p.favorite;
+    CoverInk = p.coverInk;
+    // Les widgets standards d'ImGui (listes déroulantes, barres de
+    // défilement...) prennent leurs couleurs dans le style : on le refait.
+    if (ImGui::GetCurrentContext())
+        applyImGuiStyle();
+}
+
+Palette palette()
+{
+    return {Ground,  Surface,     SurfaceAlt, Ink,       InkHover,  Body,      Muted,       Hairline,   Divider,
+            Dashed,  Track,       Placeholder, Accent,   AccentHover, AccentSoft, AccentInk, OnAccent,  Success,
+            SuccessSoft, Warning, WarningSoft, Danger,   DangerSoft, NeutralSoft, Favorite,  CoverInk};
+}
+
+bool isDark()
+{
+    return luminance(Ground) < 0.25f;
+}
+
+namespace {
+// La police personnalisée voulue, et celle réellement chargée.
+std::filesystem::path g_wantedFont;
+std::filesystem::path g_loadedFont;
+} // namespace
+
+void setCustomFont(const std::filesystem::path& file)
+{
+    g_wantedFont = file;
+}
+
+bool isFontFile(const std::filesystem::path& file)
+{
+    // Les 4 premiers octets d'une police disent son format : 00 01 00 00 ou
+    // "true" (TrueType), "OTTO" (OpenType), "ttcf" (collection).
+    std::ifstream in(file, std::ios::binary);
+    char magic[4] = {};
+    if (!in.read(magic, 4))
+        return false;
+    const std::string m(magic, 4);
+    return m == std::string("\x00\x01\x00\x00", 4) || m == "true" || m == "OTTO" || m == "ttcf";
+}
+
 bool loadFonts(const std::filesystem::path& fontDir, const std::string& language)
 {
     ImGuiIO& io = ImGui::GetIO();
     g_script = scriptOf(language);
+    // La police choisie (Paramètres > Apparence), si elle est lisible.
+    g_loadedFont = g_wantedFont;
+    std::error_code ec;
+    const bool custom = !g_wantedFont.empty() && std::filesystem::is_regular_file(g_wantedFont, ec) && isFontFile(g_wantedFont);
     // Les lettres sont rangées côte à côte dans une texture. Un peu plus
     // d'espace entre elles évite qu'un bout de la lettre voisine "bave"
     // quand le texte est placé entre deux pixels.
@@ -106,7 +206,25 @@ bool loadFonts(const std::filesystem::path& fontDir, const std::string& language
     bool ok = true;
     for (size_t i = 0; i < g_fonts.size(); ++i) {
         const std::string path = toUtf8(fontDir / files[i]);
-        g_fonts[i] = io.Fonts->AddFontFromFileTTF(path.c_str(), 16.0f);
+        g_fonts[i] = nullptr;
+        if (custom) {
+            // Police personnalisée : le même fichier pour les quatre graisses
+            // (on n'en a qu'une). Plus Jakarta Sans passe juste après, pour
+            // les lettres qu'elle n'aurait pas (accents...).
+            ImFontConfig cfg;
+            cfg.Flags |= ImFontFlags_NoLoadError;
+            g_fonts[i] = io.Fonts->AddFontFromFileTTF(toUtf8(g_wantedFont).c_str(), 16.0f, &cfg);
+            if (g_fonts[i]) {
+                ImFontConfig merge;
+                merge.MergeMode = true;
+                merge.Flags |= ImFontFlags_NoLoadError;
+                io.Fonts->AddFontFromFileTTF(path.c_str(), 16.0f, &merge);
+            } else {
+                SDL_Log("Police personnalisée illisible : %s", toUtf8(g_wantedFont).c_str());
+            }
+        }
+        if (!g_fonts[i])
+            g_fonts[i] = io.Fonts->AddFontFromFileTTF(path.c_str(), 16.0f);
         if (!g_fonts[i]) {
             SDL_Log("Police introuvable : %s", path.c_str());
             ok = false;
@@ -191,12 +309,16 @@ float scale()
 
 bool fontsMatch(const std::string& language)
 {
-    return scriptOf(language) == g_script;
+    return scriptOf(language) == g_script && g_wantedFont == g_loadedFont;
 }
 
 void applyImGuiStyle()
 {
-    ImGui::StyleColorsLight();
+    // Les couleurs de départ d'ImGui (claires ou sombres), avant les nôtres.
+    if (isDark())
+        ImGui::StyleColorsDark();
+    else
+        ImGui::StyleColorsLight();
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowPadding = ImVec2(0.0f, 0.0f);
     style.WindowBorderSize = 0.0f;
@@ -233,7 +355,14 @@ void applyImGuiStyle()
     c[ImGuiCol_ScrollbarGrabActive] = toVec4(Muted);
     c[ImGuiCol_NavCursor] = toVec4(Accent);
     c[ImGuiCol_TextSelectedBg] = toVec4(withAlpha(Accent, 60));
-    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.067f, 0.067f, 0.078f, 0.42f);
+    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.067f, 0.067f, 0.078f, isDark() ? 0.62f : 0.42f);
+    c[ImGuiCol_Button] = toVec4(Surface);
+    c[ImGuiCol_ButtonHovered] = toVec4(SurfaceAlt);
+    c[ImGuiCol_ButtonActive] = toVec4(NeutralSoft);
+    c[ImGuiCol_Separator] = toVec4(Divider);
+    c[ImGuiCol_CheckMark] = toVec4(Accent);
+    c[ImGuiCol_SliderGrab] = toVec4(Accent);
+    c[ImGuiCol_SliderGrabActive] = toVec4(AccentHover);
 }
 
 } // namespace theme

@@ -32,7 +32,20 @@ void Settings::load(const std::filesystem::path& file)
         else if (key == "autoSaveState") autoSaveState = number != 0;
         else if (key == "autoScrape") autoScrape = number != 0;
         else if (key == "nickname" && !value.empty()) nickname = value;
-        else if (key == "libraryView") libraryView = std::clamp(number, 0, 2);
+        else if (key == "libraryView") libraryView = std::clamp(number, 0, 5);
+        else if (key == "theme" && !value.empty()) theme = value;
+        else if (key == "accentColor") accentColor = value;
+        else if (key == "background") background = std::clamp(number, 0, 3);
+        else if (key == "groundColor") groundColor = value;
+        else if (key == "gradientFrom" && !value.empty()) gradientFrom = value;
+        else if (key == "gradientTo" && !value.empty()) gradientTo = value;
+        else if (key == "gradientAngle") gradientAngle = ((number % 360) + 360) % 360;
+        else if (key == "backgroundImage") backgroundImage = value;
+        else if (key == "backgroundDim") backgroundDim = std::clamp(number, 0, 90);
+        else if (key == "uiFont") uiFont = value;
+        else if (key == "uiSounds") uiSounds = number != 0;
+        else if (key == "uiSoundVolume") uiSoundVolume = std::clamp(number, 0, 100);
+        else if (key == "uiSoundPack") uiSoundPack = std::clamp(number, 0, 3);
         else if (key == "coreAutoUpdate") coreAutoUpdate = number != 0;
         else if (key == "netStats") netStats = number != 0;
         else if (key == "voiceMode") voiceMode = std::clamp(number, 0, 2);
@@ -67,6 +80,19 @@ void Settings::save(const std::filesystem::path& file) const
         << "autoScrape=" << autoScrape << '\n'
         << "nickname=" << nickname << '\n'
         << "libraryView=" << libraryView << '\n'
+        << "theme=" << theme << '\n'
+        << "accentColor=" << accentColor << '\n'
+        << "background=" << background << '\n'
+        << "groundColor=" << groundColor << '\n'
+        << "gradientFrom=" << gradientFrom << '\n'
+        << "gradientTo=" << gradientTo << '\n'
+        << "gradientAngle=" << gradientAngle << '\n'
+        << "backgroundImage=" << backgroundImage << '\n'
+        << "backgroundDim=" << backgroundDim << '\n'
+        << "uiFont=" << uiFont << '\n'
+        << "uiSounds=" << uiSounds << '\n'
+        << "uiSoundVolume=" << uiSoundVolume << '\n'
+        << "uiSoundPack=" << uiSoundPack << '\n'
         << "coreAutoUpdate=" << coreAutoUpdate << '\n'
         << "netStats=" << netStats << '\n'
         << "voiceMode=" << voiceMode << '\n'

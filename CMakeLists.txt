@@ -115,6 +115,7 @@ add_executable(emulateur
     src/Discord.cpp
     src/CoreUpdater.cpp
     src/Input.cpp
+    src/UiSounds.cpp
     # Les données : jeux, BIOS, réglages, historique.
     src/Library.cpp
     src/UserData.cpp
@@ -140,6 +141,7 @@ add_executable(emulateur
     # L'interface (le design est dans src/ui/).
     src/Ui.cpp
     src/ui/Theme.cpp
+    src/ui/Themes.cpp
     src/ui/Draw.cpp
     src/ui/Widgets.cpp
     src/ui/Covers.cpp

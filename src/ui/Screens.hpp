@@ -53,6 +53,7 @@ struct Navigation {
     std::string externalChoosing;   // console dont on choisit l'émulateur externe
     bool bigPicture = false;        // mode Big Picture (plein écran, à la manette)
     bool openFilters = false;       // bibliothèque : ouvrir la fenêtre des filtres (tests)
+    bool openViews = false;         // bibliothèque : ouvrir le menu « Vue » (tests)
 
     void go(Screen s) { screen = s; }
     void openGame(const Game& g) { screen = Screen::Game; game = g.path; }
@@ -151,6 +152,11 @@ struct TileResult {
     bool clicked = false;
     bool doubleClicked = false;
 };
+// Le nom d'une vue de la bibliothèque (Settings::libraryView) : « Grille de
+// jaquettes », « Boîtes 3D »...
+const char* libraryViewName(int view);
+constexpr int kLibraryViewCount = 6;
+
 // Jaquette cliquable avec titre et sous-titre dessous.
 TileResult coverTile(const UiContext& ctx, const Game& game, float width, float height, const std::string& subtitle,
                      float titleSize);
@@ -283,6 +289,8 @@ private:
     void drawCoreOptions(UiContext& ctx, float width);
     void drawExternal(UiContext& ctx, float width); // émulateurs externes
     void drawCores(UiContext& ctx, float width);    // cores libretro : installer, mettre à jour
+    void drawAppearance(UiContext& ctx, float width, bool& changed); // thèmes, fond, police, sons
+    bool m_colorPending = false; // une couleur réglée à la souris, à enregistrer en lâchant
     std::deque<std::string> m_coreQueue;            // cores à installer l'un après l'autre
     std::map<std::string, std::string> m_argsEdit;  // arguments en cours de saisie
     int m_tab = 0;

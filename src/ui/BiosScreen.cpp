@@ -65,7 +65,7 @@ void systemCard(const BiosSystem& s, ImVec2 min, float width)
         const ImVec2 a(min.x + pad, y);
         const ImVec2 b(min.x + width - pad, y + px(40.0f));
         if (f.present && f.check == BiosCheck::Verified) {
-            draw::rect(dl, a, b, theme::rgb(0xF4FAF6), px(12.0f), theme::rgb(0xD3EBDC));
+            draw::rect(dl, a, b, theme::SuccessSoft, px(12.0f), theme::withAlpha(theme::Success, 60));
             draw::icon(dl, draw::Icon::Check, ImVec2(a.x + px(12.0f), a.y + px(12.0f)), px(16.0f), theme::Success);
         } else if (f.present) {
             // Présent mais pas le bon contenu (abîmé, mal nommé...) : un "!".
@@ -73,7 +73,7 @@ void systemCard(const BiosSystem& s, ImVec2 min, float width)
             const ImVec2 c(a.x + px(20.0f), a.y + px(20.0f));
             dl->AddCircleFilled(c, px(8.0f), theme::Warning, 16);
             const ImVec2 bang = draw::measure(Weight::ExtraBold, 11.0f, "!");
-            draw::text(dl, ImVec2(c.x - bang.x / 2, c.y - bang.y / 2), Weight::ExtraBold, 11.0f, theme::Surface, "!");
+            draw::text(dl, ImVec2(c.x - bang.x / 2, c.y - bang.y / 2), Weight::ExtraBold, 11.0f, theme::WarningSoft, "!");
         } else {
             draw::rect(dl, a, b, theme::Surface, px(12.0f));
             draw::dashedRect(dl, a, b, theme::Dashed, px(12.0f), px(1.0f));

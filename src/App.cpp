@@ -10,10 +10,12 @@
 #include "CoreOptions.hpp"
 #include "Hash.hpp"
 #include "Trash.hpp"
+#include "UiSounds.hpp"
 #include "Utf8.hpp"
 #include "scrape/GameDatabase.hpp"
 #include "ui/Draw.hpp"
 #include "ui/Theme.hpp"
+#include "ui/Themes.hpp"
 
 #include <imgui.h>
 #include <stb_image.h> // (l'implémentation est dans ui/Covers.cpp)
@@ -76,7 +78,9 @@ App::App(AppOptions options)
                     case DialogPurpose::AddBiosFile: m_dialogs.openFiles(m_video.window(), purpose, false, true); break;
                     case DialogPurpose::AddBiosFolder: m_dialogs.openFolder(m_video.window(), purpose); break;
                     case DialogPurpose::ImportSystemFiles: m_dialogs.openFiles(m_video.window(), purpose, false, true); break;
-                    case DialogPurpose::ChooseCover: m_dialogs.openFiles(m_video.window(), purpose, true, false); break;
+                    case DialogPurpose::ChooseCover:
+                    case DialogPurpose::ChooseBackground: m_dialogs.openFiles(m_video.window(), purpose, true, false); break;
+                    case DialogPurpose::ChooseFont: m_dialogs.openFonts(m_video.window(), purpose); break;
                     case DialogPurpose::ImportSave:
                     case DialogPurpose::ChooseExternal: m_dialogs.openFiles(m_video.window(), purpose, false, false); break;
                     }
@@ -218,15 +222,22 @@ App::~App()
     closeGame();
     // Les jaquettes sont des textures OpenGL : à libérer avant le contexte.
     m_covers.releaseTextures();
+    sounds::shutdown();
 }
 
 bool App::init()
 {
     std::error_code ec;
-    for (const char* name : {"bios", "saves", "cores", "roms", "covers"})
+    for (const char* name : {"bios", "saves", "cores", "roms", "covers", "themes"})
         fs::create_directories(dir(name), ec);
     m_userData.load();
     m_settings.load(dir("settings.ini"));
+    // Les thèmes (intégrés + fichiers themes/*.ini) et celui choisi : avant
+    // de créer l'interface, pour charger tout de suite la bonne police.
+    theme::loadThemes(dir("themes"));
+    theme::applySettings(m_settings);
+    // Les sons de l'interface, calculés une fois pour toutes.
+    sounds::init();
     m_input.load(dir("input.ini"));
     m_input.setSource(m_options.inputSource, m_options.inputPad);
     m_netplay.setSimulatedLatency(m_options.simulatedLatencyMs);
@@ -330,6 +341,10 @@ bool App::init()
         m_context.play(m_library.games().front(), {});
     if (m_options.testResume && !m_library.games().empty())
         m_context.play(m_library.games().front(), ui::autoStateFile(m_context, m_library.games().front()));
+    if (m_options.startScreen == "views") { // le menu « Vue » de la bibliothèque (tests)
+        m_nav.screen = ui::Screen::Library;
+        m_nav.openViews = true;
+    }
     if (m_options.startScreen == "filters") {
         m_nav.screen = ui::Screen::Library;
         m_nav.openFilters = true;
@@ -591,6 +606,8 @@ void App::handleEvent(const SDL_Event& event)
 
 void App::drawUi()
 {
+    // Pas de sons d'interface pendant un jeu (même dans le menu pause).
+    sounds::setSuspended(m_mode == Mode::Playing);
     m_ui.beginFrame();
     m_covers.newFrame();
     // Les résultats du scraper (jaquettes, infos) arrivent ici.
@@ -1570,6 +1587,11 @@ void App::applySettings()
     m_video.setAspectOverride(aspects[std::clamp(m_settings.aspect, 0, 2)]);
     m_input.setKeyboardSeparate(m_settings.keyboardSeparate);
     m_audio.setVolume(m_settings.volume);
+    // L'apparence : thème, couleurs, fond, police (rechargée par Ui::beginFrame).
+    theme::applySettings(m_settings);
+    // Sons de l'interface : pack choisi, ou celui du thème.
+    const int pack = m_settings.uiSoundPack > 0 ? m_settings.uiSoundPack - 1 : theme::active().soundPack;
+    sounds::configure(m_settings.uiSounds, m_settings.uiSoundVolume, static_cast<sounds::Pack>(pack));
     // La langue de l'interface (fichiers assets/lang/<code>.txt).
     if (lang::current() != m_settings.language)
         lang::setLanguage(fromUtf8(SDL_GetBasePath()) / "assets" / "lang", m_settings.language);

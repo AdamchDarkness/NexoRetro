@@ -4,8 +4,10 @@
 #include "../CoreOptions.hpp"
 #include "../ExternalSetup.hpp"
 #include "../Lang.hpp"
+#include "../UiSounds.hpp"
 #include "../Utf8.hpp"
 #include "Screens.hpp"
+#include "Themes.hpp"
 #include "Widgets.hpp"
 
 #include <algorithm>
@@ -514,6 +516,341 @@ void SettingsScreen::drawDiscord(UiContext& ctx, float width, bool& changed)
                           });
 }
 
+// --- Apparence ---------------------------------------------------------------------
+
+namespace {
+
+// Les couleurs proposées d'un clic dans le sélecteur (en plus de la roue).
+constexpr unsigned kSwatches[] = {0x1F4FFF, 0x5865F2, 0x7C3AED, 0xEB459E, 0xE5484D, 0xF97316,
+                                  0xF5B800, 0x22C55E, 0x0EA5E9, 0x00D1B2, 0x111114, 0xF4F4F1};
+
+// Des dégradés tout prêts, façon Discord.
+struct GradientPreset {
+    unsigned from, to;
+};
+constexpr GradientPreset kGradients[] = {{0x5865F2, 0xEB459E}, {0x0F2027, 0x2C5364}, {0xFF7E5F, 0xFEB47B},
+                                         {0x1A2980, 0x26D0CE}, {0x232526, 0x414345}, {0x3A1C71, 0xD76D77},
+                                         {0x134E5E, 0x71B280}, {0x0B0C10, 0x1B2A4A}};
+
+// La miniature d'un thème : son fond, une carte, des lignes de texte, un
+// bouton d'accent et deux jaquettes.
+void themePreview(ImDrawList* dl, const theme::ThemeInfo& t, ImVec2 min, ImVec2 max, float rounding)
+{
+    const theme::Palette& p = t.palette;
+    if (t.background == theme::Background::Gradient)
+        theme::gradientRect(dl, min, max, t.gradientFrom, t.gradientTo, t.gradientAngle, rounding);
+    else
+        draw::rect(dl, min, max, p.ground, rounding);
+    const float w = max.x - min.x;
+    const float h = max.y - min.y;
+    // La barre du haut : une pilule claire et le bouton d'accent.
+    draw::rect(dl, ImVec2(min.x + w * 0.3f, min.y + h * 0.1f), ImVec2(min.x + w * 0.7f, min.y + h * 0.22f), p.surface, h * 0.06f,
+               p.hairline);
+    draw::rect(dl, ImVec2(min.x + w * 0.76f, min.y + h * 0.1f), ImVec2(min.x + w * 0.92f, min.y + h * 0.22f), p.accent, h * 0.06f);
+    // Le titre et le sous-titre.
+    draw::rect(dl, ImVec2(min.x + w * 0.08f, min.y + h * 0.32f), ImVec2(min.x + w * 0.42f, min.y + h * 0.39f), p.ink, h * 0.035f);
+    draw::rect(dl, ImVec2(min.x + w * 0.08f, min.y + h * 0.44f), ImVec2(min.x + w * 0.3f, min.y + h * 0.48f), p.muted, h * 0.02f);
+    // Une carte, et deux jaquettes aux couleurs du thème.
+    draw::rect(dl, ImVec2(min.x + w * 0.08f, min.y + h * 0.56f), ImVec2(min.x + w * 0.52f, min.y + h * 0.9f), p.surface, h * 0.06f);
+    draw::rect(dl, ImVec2(min.x + w * 0.13f, min.y + h * 0.63f), ImVec2(min.x + w * 0.4f, min.y + h * 0.68f), p.body, h * 0.025f);
+    draw::rect(dl, ImVec2(min.x + w * 0.13f, min.y + h * 0.74f), ImVec2(min.x + w * 0.3f, min.y + h * 0.82f), p.ink, h * 0.04f);
+    const ImU32 c1 = t.covers.empty() ? theme::rgb(0x4C3FB8) : t.covers[0];
+    const ImU32 c2 = t.covers.size() > 1 ? t.covers[1] : theme::rgb(0x0F766E);
+    draw::rect(dl, ImVec2(min.x + w * 0.58f, min.y + h * 0.56f), ImVec2(min.x + w * 0.73f, min.y + h * 0.9f), c1, h * 0.04f);
+    draw::rect(dl, ImVec2(min.x + w * 0.77f, min.y + h * 0.56f), ImVec2(min.x + w * 0.92f, min.y + h * 0.9f), c2, h * 0.04f);
+}
+
+// Un bouton-pastille qui montre une couleur ; un clic ouvre le sélecteur
+// (roue des teintes, code #RRGGBB, couleurs proposées). value : "#RRGGBB",
+// vide = fallback (la couleur du thème). Renvoie true quand la couleur change.
+bool colorButton(const char* id, std::string& value, ImU32 fallback, bool allowDefault)
+{
+    ImU32 color = fallback;
+    theme::parseColor(value, color);
+    ImGui::PushID(id);
+    const ImVec2 size = px(150.0f, 38.0f);
+    const bool clicked = ImGui::InvisibleButton("##swatch", size);
+    const bool hovered = ImGui::IsItemHovered();
+    const ImVec2 p = ImGui::GetItemRectMin();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    draw::rect(dl, p, ImVec2(p.x + size.x, p.y + size.y), hovered ? theme::SurfaceAlt : theme::Surface, size.y / 2,
+               theme::Hairline);
+    dl->AddCircleFilled(ImVec2(p.x + px(19.0f), p.y + size.y / 2), px(11.0f), color, 24);
+    dl->AddCircle(ImVec2(p.x + px(19.0f), p.y + size.y / 2), px(11.0f), theme::withAlpha(theme::Ink, 40), 24, px(1.0f));
+    const std::string label = value.empty() && allowDefault ? std::string("Du thème") : theme::formatColor(color);
+    draw::textEllipsis(dl, ImVec2(p.x + px(38.0f), p.y + px(10.0f)), Weight::Bold, 13.0f, theme::Ink, label,
+                       size.x - px(38.0f + 32.0f));
+    draw::icon(dl, draw::Icon::ChevronDown, ImVec2(p.x + size.x - px(28.0f), p.y + px(11.0f)), px(16.0f), theme::Muted);
+    if (clicked)
+        ImGui::OpenPopup("##picker");
+
+    bool changed = false;
+    ImGui::SetNextWindowPos(ImVec2(p.x + size.x - px(280.0f), p.y + size.y + px(8.0f)), ImGuiCond_Appearing);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, theme::Surface);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, px(16.0f, 16.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, px(18.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, px(8.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, px(10.0f, 8.0f));
+    if (ImGui::BeginPopup("##picker")) {
+        // Le sélecteur d'ImGui : un carré (saturation, clarté), une barre de
+        // teintes et le code hexadécimal.
+        float rgbValue[3] = {static_cast<float>((color >> IM_COL32_R_SHIFT) & 0xFF) / 255.0f,
+                             static_cast<float>((color >> IM_COL32_G_SHIFT) & 0xFF) / 255.0f,
+                             static_cast<float>((color >> IM_COL32_B_SHIFT) & 0xFF) / 255.0f};
+        ImGui::PushFont(theme::font(Weight::SemiBold), px(13.0f));
+        ImGui::SetNextItemWidth(px(248.0f));
+        if (ImGui::ColorPicker3("##wheel", rgbValue,
+                                ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview |
+                                    ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_DisplayHex |
+                                    ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoOptions)) {
+            value = theme::formatColor(ImGui::ColorConvertFloat4ToU32(ImVec4(rgbValue[0], rgbValue[1], rgbValue[2], 1.0f)));
+            changed = true;
+        }
+        ImGui::PopFont();
+        // Les couleurs proposées, en petites pastilles.
+        space(4.0f);
+        ImDrawList* pdl = ImGui::GetWindowDrawList();
+        for (int i = 0; i < static_cast<int>(std::size(kSwatches)); ++i) {
+            if (i % 6 != 0)
+                ImGui::SameLine(0.0f, px(8.0f));
+            ImGui::PushID(i);
+            if (ImGui::InvisibleButton("##preset", px(34.0f, 34.0f))) {
+                value = theme::formatColor(theme::rgb(kSwatches[i]));
+                changed = true;
+            }
+            const ImVec2 c((ImGui::GetItemRectMin().x + ImGui::GetItemRectMax().x) / 2,
+                           (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) / 2);
+            pdl->AddCircleFilled(c, px(15.0f), theme::rgb(kSwatches[i]), 24);
+            pdl->AddCircle(c, px(15.0f), theme::withAlpha(theme::Ink, ImGui::IsItemHovered() ? 120 : 35), 24, px(1.5f));
+            ImGui::PopID();
+        }
+        if (allowDefault) {
+            space(2.0f);
+            if (button("Couleur du thème##default", {.style = ButtonStyle::Ghost, .icon = draw::Icon::Refresh, .height = 34.0f,
+                                                      .fontSize = 13.0f, .disabled = value.empty()})) {
+                value.clear();
+                changed = true;
+            }
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(4);
+    ImGui::PopStyleColor();
+    ImGui::PopID();
+    return changed;
+}
+
+} // namespace
+
+void SettingsScreen::drawAppearance(UiContext& ctx, float width, bool& changed)
+{
+    Settings& s = ctx.settings;
+    // Pendant qu'on fait glisser une couleur, elle s'applique tout de suite
+    // (sans écrire settings.ini à chaque image) ; on enregistre en lâchant.
+    bool live = false;
+    auto colorChanged = [&] {
+        live = true;
+        m_colorPending = true;
+    };
+
+    // --- Les thèmes, en vignettes.
+    overline("THÈME");
+    space(2.0f);
+    {
+        const std::vector<theme::ThemeInfo>& list = theme::themes();
+        const float gap = px(14.0f);
+        const int columns = std::max(2, static_cast<int>((width + gap) / (px(150.0f) + gap)));
+        const float cardW = (width - gap * (columns - 1)) / columns;
+        const float previewH = cardW * 0.62f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (size_t i = 0; i < list.size(); ++i) {
+            const theme::ThemeInfo& t = list[i];
+            if (i % columns != 0)
+                ImGui::SameLine(0.0f, gap);
+            ImGui::PushID(t.id.c_str());
+            const bool clicked = ImGui::InvisibleButton("##theme", ImVec2(cardW, previewH + px(34.0f)));
+            const bool hovered = ImGui::IsItemHovered();
+            ImGui::PopID();
+            const ImVec2 m = ImGui::GetItemRectMin();
+            const bool selected = s.theme == t.id;
+            const ImVec2 pmax(m.x + cardW, m.y + previewH);
+            themePreview(dl, t, m, pmax, px(14.0f));
+            if (selected)
+                dl->AddRect(ImVec2(m.x - px(3.0f), m.y - px(3.0f)), ImVec2(pmax.x + px(3.0f), pmax.y + px(3.0f)), theme::Accent,
+                            px(16.0f), 0, px(2.5f));
+            else
+                dl->AddRect(m, pmax, hovered ? theme::Dashed : theme::Hairline, px(14.0f), 0, px(1.0f));
+            draw::textEllipsis(dl, ImVec2(m.x + px(2.0f), pmax.y + px(9.0f)), Weight::Bold, 14.0f,
+                               selected ? theme::Ink : theme::Body, t.name, cardW - px(26.0f));
+            if (selected)
+                draw::icon(dl, draw::Icon::Check, ImVec2(m.x + cardW - px(20.0f), pmax.y + px(9.0f)), px(18.0f), theme::Accent);
+            if (hovered)
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            if (clicked && !selected) {
+                // Un nouveau thème repart de ses propres couleurs (on garde
+                // seulement un dégradé ou une image choisis).
+                s.theme = t.id;
+                s.accentColor.clear();
+                if (s.background == 1)
+                    s.background = 0;
+                changed = true;
+            }
+        }
+        space(10.0f);
+    }
+
+    // --- Couleurs et fond.
+    overline("COULEURS ET FOND");
+    const theme::ThemeInfo& base = theme::findTheme(s.theme);
+    settingRow("Couleur d'accent", "Boutons, liens, sélection", width, px(150.0f), [&] {
+        if (colorButton("##accent", s.accentColor, base.palette.accent, true))
+            colorChanged();
+        return false;
+    });
+    static const char* const backgrounds[] = {"Du thème", "Couleur", "Dégradé", "Image"};
+    changed |= settingRow("Fond de l'interface", "Derrière les pages : uni, dégradé de deux couleurs ou image", width,
+                          segmentedWidth({"Du thème", "Couleur", "Dégradé", "Image"}),
+                          [&] { return segmented("##background", backgrounds, &s.background); });
+    if (s.background == 1) {
+        settingRow("Couleur de fond", "Les cartes et les textes s'adaptent pour rester lisibles", width, px(150.0f), [&] {
+            if (colorButton("##ground", s.groundColor, base.palette.ground, true))
+                colorChanged();
+            return false;
+        });
+    } else if (s.background == 2) {
+        settingRow("Couleurs du dégradé", "De la première à la seconde, dans la direction choisie", width,
+                   px(150.0f + 10.0f + 150.0f), [&] {
+                       if (colorButton("##from", s.gradientFrom, theme::rgb(0x5865F2), false))
+                           colorChanged();
+                       ImGui::SameLine(0.0f, px(10.0f));
+                       if (colorButton("##to", s.gradientTo, theme::rgb(0xEB459E), false))
+                           colorChanged();
+                       return false;
+                   });
+        // Les dégradés tout prêts : des pastilles rondes.
+        settingRow("Dégradés proposés", "Un clic pour l'essayer", width,
+                   px(44.0f) * static_cast<float>(std::size(kGradients)) - px(8.0f), [&] {
+                       ImDrawList* dl = ImGui::GetWindowDrawList();
+                       for (int i = 0; i < static_cast<int>(std::size(kGradients)); ++i) {
+                           if (i > 0)
+                               ImGui::SameLine(0.0f, px(8.0f));
+                           ImGui::PushID(i);
+                           const bool pick = ImGui::InvisibleButton("##grad", px(36.0f, 36.0f));
+                           const bool over = ImGui::IsItemHovered();
+                           ImGui::PopID();
+                           const ImVec2 m = ImGui::GetItemRectMin();
+                           const ImVec2 mx = ImGui::GetItemRectMax();
+                           theme::gradientRect(dl, m, mx, theme::rgb(kGradients[i].from), theme::rgb(kGradients[i].to), 45, px(18.0f));
+                           const bool current = s.gradientFrom == theme::formatColor(theme::rgb(kGradients[i].from)) &&
+                                                s.gradientTo == theme::formatColor(theme::rgb(kGradients[i].to));
+                           if (current || over)
+                               dl->AddCircle(ImVec2((m.x + mx.x) / 2, (m.y + mx.y) / 2), px(20.0f),
+                                             current ? theme::Accent : theme::Dashed, 32, px(2.0f));
+                           if (pick) {
+                               s.gradientFrom = theme::formatColor(theme::rgb(kGradients[i].from));
+                               s.gradientTo = theme::formatColor(theme::rgb(kGradients[i].to));
+                               changed = true;
+                           }
+                       }
+                       return false;
+                   });
+        if (settingRow("Direction", "0° : de gauche à droite · 90° : de haut en bas", width, px(260.0f),
+                       [&] { return slider("##angle", &s.gradientAngle, 0, 359, 200.0f, "°"); }))
+            colorChanged();
+    } else if (s.background == 3) {
+        const std::string current = s.backgroundImage.empty() ? std::string("Aucune image choisie") : s.backgroundImage;
+        settingRow("Image de fond", current.c_str(), width, px(190.0f), [&] {
+            if (button("Choisir une image…", {.style = s.backgroundImage.empty() ? ButtonStyle::Primary : ButtonStyle::Outline,
+                                              .icon = draw::Icon::Image, .height = 38.0f, .width = 190.0f, .fontSize = 13.0f}))
+                ctx.openDialog(DialogPurpose::ChooseBackground);
+            return false;
+        });
+        if (settingRow("Voile sur l'image", "Plus fort : l'image s'efface derrière le texte", width, px(260.0f),
+                       [&] { return slider("##dim", &s.backgroundDim, 0, 90, 200.0f, " %"); }))
+            colorChanged();
+    }
+    space(10.0f);
+
+    // --- Police.
+    overline("POLICE");
+    {
+        const std::string fontName = s.uiFont.empty()
+                                         ? std::string("Plus Jakarta Sans (police d'origine)")
+                                         : toUtf8(fromUtf8(s.uiFont).stem());
+        settingRow("Police de l'interface", fontName.c_str(), width, px(130.0f + 10.0f + 170.0f), [&] {
+            if (button("Importer…##font", {.style = ButtonStyle::Outline, .icon = draw::Icon::Upload, .height = 38.0f,
+                                           .width = 130.0f, .fontSize = 13.0f,
+                                           .tooltip = "Un fichier .ttf ou .otf, utilisé pour toute l'interface"}))
+                ctx.openDialog(DialogPurpose::ChooseFont);
+            ImGui::SameLine(0.0f, px(10.0f));
+            if (button("Police d'origine", {.style = ButtonStyle::Ghost, .icon = draw::Icon::Refresh, .height = 38.0f,
+                                            .width = 170.0f, .fontSize = 13.0f, .disabled = s.uiFont.empty()})) {
+                s.uiFont.clear();
+                changed = true;
+            }
+            return false;
+        });
+    }
+    space(10.0f);
+
+    // --- Sons de l'interface.
+    overline("SONS DE L'INTERFACE");
+    changed |= settingRow("Sons de l'interface", "Clics, survols, validation, retour et notifications (jamais pendant un jeu)",
+                          width, px(46.0f), [&] { return toggle("##uiSounds", &s.uiSounds); });
+    if (s.uiSounds) {
+        changed |= settingRow("Volume des sons", "Indépendant du volume des jeux", width, px(260.0f),
+                              [&] { return slider("##uiVolume", &s.uiSoundVolume, 0, 100, 200.0f, " %"); });
+        static const char* const packs[] = {"Du thème", "Doux", "8 bits", "Arcade"};
+        if (settingRow("Style des sons", "Calculés par l'émulateur : aucun fichier audio", width,
+                       segmentedWidth({"Du thème", "Doux", "8 bits", "Arcade"}),
+                       [&] { return segmented("##uiPack", packs, &s.uiSoundPack); })) {
+            changed = true;
+            const int pack = s.uiSoundPack > 0 ? s.uiSoundPack - 1 : base.soundPack;
+            sounds::preview(static_cast<sounds::Pack>(pack));
+        }
+    }
+    space(10.0f);
+
+    // --- Bibliothèque.
+    overline("BIBLIOTHÈQUE");
+    {
+        std::vector<const char*> views;
+        for (int i = 0; i < kLibraryViewCount; ++i)
+            views.push_back(libraryViewName(i));
+        changed |= settingRow("Vue de la bibliothèque", "Aussi dans le menu « Vue » de la bibliothèque", width, px(220.0f),
+                              [&] { return combo("##libraryView", views, &s.libraryView, 220.0f); });
+    }
+    space(14.0f);
+    if (button("Réinitialiser l'apparence", {.style = ButtonStyle::Outline, .icon = draw::Icon::Refresh, .height = 40.0f})) {
+        const Settings defaults;
+        s.theme = defaults.theme;
+        s.accentColor.clear();
+        s.background = 0;
+        s.groundColor.clear();
+        s.gradientFrom = defaults.gradientFrom;
+        s.gradientTo = defaults.gradientTo;
+        s.gradientAngle = defaults.gradientAngle;
+        s.backgroundDim = defaults.backgroundDim;
+        s.uiFont.clear();
+        s.uiSounds = defaults.uiSounds;
+        s.uiSoundVolume = defaults.uiSoundVolume;
+        s.uiSoundPack = 0;
+        changed = true;
+    }
+    space(6.0f);
+    textWrapped("D'autres thèmes peuvent être ajoutés sans rien installer : un fichier texte .ini par thème dans le "
+                "dossier themes (couleurs, fond, police, sons), lu au démarrage.",
+                13.0f, Weight::Medium, theme::Muted, width);
+
+    // Couleur en cours de réglage : appliquée tout de suite, enregistrée en lâchant la souris.
+    if (live)
+        theme::applySettings(s);
+    if (m_colorPending && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        m_colorPending = false;
+        changed = true;
+    }
+}
+
 void SettingsScreen::drawCoreOptions(UiContext& ctx, float width)
 {
     namespace fs = std::filesystem;
@@ -655,9 +992,17 @@ void SettingsScreen::draw(UiContext& ctx)
     ImGui::BeginGroup();
     pageTitle("Paramètres", "");
     space(4.0f);
-    const char* tabs[] = {"Affichage",    "Son",          "Manettes",           "Sauvegardes",
-                          "Dossiers",     "Jeu en ligne", "Jaquettes et infos", "Options des cores",
-                          "Émulateurs externes", "Émulateurs (cores)"};
+    // Chaque onglet a un numéro fixe (utilisé par --settings-tab et par les
+    // autres écrans), mais ils s'affichent dans l'ordre de cette liste :
+    // « Apparence » (n° 10, ajouté après les autres) vient après « Affichage ».
+    struct Tab {
+        const char* label;
+        int id;
+    };
+    static const Tab tabs[] = {{"Affichage", 0},           {"Apparence", 10},           {"Son", 1},
+                               {"Manettes", 2},            {"Sauvegardes", 3},          {"Dossiers", 4},
+                               {"Jeu en ligne", 5},        {"Jaquettes et infos", 6},   {"Options des cores", 7},
+                               {"Émulateurs externes", 8}, {"Émulateurs (cores)", 9}};
 
     // Les cores à installer l'un après l'autre (page "Émulateurs") : le
     // suivant part dès que le précédent est fini.
@@ -669,17 +1014,17 @@ void SettingsScreen::draw(UiContext& ctx)
     for (int i = 0; i < static_cast<int>(std::size(tabs)); ++i) {
         ImGui::PushID(i);
         if (ImGui::InvisibleButton("##tab", ImVec2(navW, px(46.0f))))
-            m_tab = i;
+            m_tab = tabs[i].id;
         const bool hovered = ImGui::IsItemHovered();
         ImGui::PopID();
         const ImVec2 min = ImGui::GetItemRectMin();
-        const bool selected = m_tab == i;
+        const bool selected = m_tab == tabs[i].id;
         if (selected || hovered)
             draw::rect(dl, min, ImVec2(min.x + navW, min.y + px(46.0f)), selected ? theme::Surface : theme::withAlpha(theme::Surface, 130),
                        px(14.0f));
         draw::text(dl, ImVec2(min.x + px(16.0f), min.y + px(13.0f)), Weight::Bold, 15.0f,
-                   selected ? theme::Ink : theme::Muted, tabs[i]);
-        if (i == 2 && !pads.empty()) {
+                   selected ? theme::Ink : theme::Muted, tabs[i].label);
+        if (tabs[i].id == 2 && !pads.empty()) {
             const std::string hint = std::to_string(pads.size()) + (pads.size() > 1 ? " branchées" : " branchée");
             const float hw = draw::measure(Weight::SemiBold, 12.0f, hint).x;
             draw::text(dl, ImVec2(min.x + navW - px(16.0f) - hw, min.y + px(16.0f)), Weight::SemiBold, 12.0f, theme::Muted, hint);
@@ -697,6 +1042,10 @@ void SettingsScreen::draw(UiContext& ctx)
     // --- Panneau.
     ImGui::SameLine(0.0f, px(32.0f));
     beginCard("##panel", ImVec2(avail.x - navW - px(32.0f), avail.y), 30.0f, theme::Surface, 24.0f, true);
+    // Tests : EMU_TEST_SCROLL=N fait défiler le panneau de N pixels (pour
+    // voir le bas d'un long onglet sur une capture).
+    if (const char* scroll = SDL_getenv("EMU_TEST_SCROLL"))
+        ImGui::SetScrollY(px(static_cast<float>(SDL_atoi(scroll))));
     const float w = ImGui::GetContentRegionAvail().x;
     bool changed = false;
     auto header = [&](const char* title, const char* intro) {
@@ -920,6 +1269,10 @@ void SettingsScreen::draw(UiContext& ctx)
     case 9:
         header("Émulateurs (cores)", "Le programme qui fait tourner chaque console : installé ou mis à jour en un clic.");
         drawCores(ctx, w);
+        break;
+    case 10:
+        header("Apparence", "Thème, couleurs, fond, police et sons de l'interface.");
+        drawAppearance(ctx, w, changed);
         break;
     default:
         break;

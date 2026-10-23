@@ -98,7 +98,7 @@ void AddGamesScreen::draw(UiContext& ctx)
         const ImU32 thumb = item.system ? theme::rgb(item.system->color) : theme::Track;
         draw::rect(cdl, ImVec2(row.x, row.y + px(10.0f)), ImVec2(row.x + px(36.0f), row.y + px(58.0f)), thumb, px(6.0f));
         if (item.status == ImportItem::Status::Folder)
-            draw::icon(cdl, draw::Icon::Folder, ImVec2(row.x + px(8.0f), row.y + px(24.0f)), px(20.0f), theme::Surface);
+            draw::icon(cdl, draw::Icon::Folder, ImVec2(row.x + px(8.0f), row.y + px(24.0f)), px(20.0f), theme::White);
         const float textW = rowW * 0.42f;
         draw::textEllipsis(cdl, ImVec2(row.x + px(50.0f), row.y + px(16.0f)), Weight::Bold, 14.0f, theme::Ink, item.title, textW);
         draw::textEllipsis(cdl, ImVec2(row.x + px(50.0f), row.y + px(36.0f)), Weight::Medium, 12.0f, theme::Muted,
