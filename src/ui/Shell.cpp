@@ -137,6 +137,34 @@ void Shell::drawTopBar(UiContext& ctx)
         x += size.x + px(2.0f);
     }
 
+    // Une nouvelle version de Nexo Retro : une pastille discrète à droite du
+    // logo, qui mène à Paramètres > Mises à jour. (Seulement s'il y a la
+    // place avant la navigation, et pas pour une version ignorée.)
+    if (const AppUpdater* updater = ctx.appUpdater) {
+        const AppUpdater::State state = updater->state();
+        const bool found = state == AppUpdater::State::Available || state == AppUpdater::State::Downloading ||
+                           state == AppUpdater::State::Ready;
+        if (found && updater->latestVersion() != ctx.settings.appIgnoredVersion) {
+            const char* label = state == AppUpdater::State::Ready ? "Mise à jour prête" : "Mise à jour disponible";
+            const ImVec2 ts = draw::measure(Weight::Bold, 13.0f, label);
+            const ImVec2 size(ts.x + px(16.0f + 14.0f + 6.0f + 14.0f), px(32.0f));
+            const ImVec2 at(origin.x + px(40.0f) + logoWidth + px(18.0f), centerY - size.y / 2);
+            if (at.x + size.x + px(12.0f) < navMin.x) {
+                ImGui::SetCursorScreenPos(at);
+                if (ImGui::InvisibleButton("##appUpdate", size)) {
+                    ctx.nav.go(Screen::Settings);
+                    ctx.nav.settingsTab = 10; // l'onglet "Mises à jour"
+                }
+                const bool hovered = ImGui::IsItemHovered();
+                draw::rect(dl, at, ImVec2(at.x + size.x, at.y + size.y), hovered ? theme::Accent : theme::AccentSoft,
+                           size.y / 2);
+                const ImU32 ink = hovered ? theme::Surface : theme::Accent;
+                draw::icon(dl, draw::Icon::Refresh, ImVec2(at.x + px(14.0f), centerY - px(7.0f)), px(14.0f), ink);
+                draw::text(dl, ImVec2(at.x + px(14.0f + 14.0f + 6.0f), centerY - ts.y / 2), Weight::Bold, 13.0f, ink, label);
+            }
+        }
+    }
+
     // À droite : recherche, Ajouter, avatar.
     const float addWidth = draw::measure(Weight::Bold, 14.0f, "Ajouter").x + px(18.0f * 2 + 17.0f + 8.0f);
     float right = origin.x + width - px(40.0f);

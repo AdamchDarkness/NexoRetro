@@ -143,5 +143,8 @@ int main(int argc, char** argv)
         code = app.run();
     }
     SDL_Quit();
+    // Une mise à jour à installer ? Tout est fermé et enregistré : on lance
+    // l'installateur, qui remplacera le programme puis le relancera.
+    AppUpdater::runPendingInstaller();
     return code;
 }
