@@ -1005,3 +1005,16 @@ Fond d'écran mis à jour => 배경 화면을 바꿨습니다
 Ce fichier n'est pas une police TrueType ou OpenType => 이 파일은 TrueType 또는 OpenType 글꼴이 아닙니다
 Impossible de copier la police : {} => 글꼴을 복사할 수 없습니다: {}
 Police : {} => 글꼴: {}
+
+# --- Export et import des BIOS ---
+Mes BIOS => 내 BIOS
+Une copie de votre dossier bios dans un .zip, à garder pour vous ou à recopier sur un autre PC => bios 폴더를 .zip으로 복사해 직접 보관하거나 다른 PC로 옮길 수 있습니다
+Exporter => 내보내기
+Importer => 가져오기
+Aucun BIOS à exporter : le dossier bios est vide => 내보낼 BIOS가 없습니다: bios 폴더가 비어 있습니다
+Impossible de créer {} => {}을(를) 만들 수 없습니다
+{n} fichiers exportés dans {} => 파일 {}개를 {}(으)로 내보냈습니다
+{n} fichier exporté dans {} => 파일 {}개를 {}(으)로 내보냈습니다
+Impossible d'ouvrir {} (archive .zip abîmée ?) => {}을(를) 열 수 없습니다 (.zip 압축 파일이 손상되었나요?)
+{n} fichiers restaurés depuis {} => 파일 {}개를 {}에서 복원했습니다
+{n} fichier restauré depuis {} => 파일 {}개를 {}에서 복원했습니다

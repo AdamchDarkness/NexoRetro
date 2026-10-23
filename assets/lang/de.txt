@@ -1005,3 +1005,16 @@ Fond d'écran mis à jour => Hintergrundbild aktualisiert
 Ce fichier n'est pas une police TrueType ou OpenType => Diese Datei ist keine TrueType- oder OpenType-Schrift
 Impossible de copier la police : {} => Schrift konnte nicht kopiert werden: {}
 Police : {} => Schrift: {}
+
+# --- Export et import des BIOS ---
+Mes BIOS => Meine BIOS
+Une copie de votre dossier bios dans un .zip, à garder pour vous ou à recopier sur un autre PC => Eine Kopie deines bios-Ordners als .zip, zum Aufbewahren oder für einen anderen PC
+Exporter => Exportieren
+Importer => Importieren
+Aucun BIOS à exporter : le dossier bios est vide => Keine BIOS zum Exportieren: der bios-Ordner ist leer
+Impossible de créer {} => {} konnte nicht erstellt werden
+{n} fichiers exportés dans {} => {} Dateien nach {} exportiert
+{n} fichier exporté dans {} => {} Datei nach {} exportiert
+Impossible d'ouvrir {} (archive .zip abîmée ?) => {} konnte nicht geöffnet werden (beschädigtes .zip-Archiv?)
+{n} fichiers restaurés depuis {} => {} Dateien aus {} wiederhergestellt
+{n} fichier restauré depuis {} => {} Datei aus {} wiederhergestellt

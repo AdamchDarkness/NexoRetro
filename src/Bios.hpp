@@ -70,6 +70,13 @@ public:
     // reconnus par leur empreinte, et les range.
     std::string importFolder(const std::filesystem::path& folder);
 
+    // Sauvegarde personnelle : tout le dossier bios/ (sous-dossiers compris)
+    // dans un .zip, pour le garder de côté ou le recopier sur un autre PC.
+    std::string exportTo(const std::filesystem::path& zip);
+    // L'inverse : une sauvegarde faite par Nexo Retro est remise telle
+    // quelle ; tout autre .zip est fouillé comme un dossier (importFolder).
+    std::string importArchive(const std::filesystem::path& zip);
+
 private:
     struct DbEntry {
         std::string system;

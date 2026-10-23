@@ -59,7 +59,8 @@ struct AppOptions {
     int netTestPlayFrames = 0; // hôte : lancer une partie en ligne de N images
     int simulatedLatencyMs = 0; // --net-latency : ping simulé (tester sur un seul PC)
     std::string testRemove;     // --test-remove hide|trash : retire le premier jeu (tests)
-    std::filesystem::path importBios; // --import-bios <fichier ou dossier> : comme un dépôt sur l'écran BIOS
+    std::filesystem::path importBios; // --import-bios <fichier, dossier ou .zip> : comme un dépôt sur l'écran BIOS
+    std::filesystem::path exportBios; // --export-bios <fichier.zip> : comme le bouton des Paramètres
     std::string installExternal; // --install-external ps3|ps4|xbox|x360 : comme le bouton "Installer"
     std::string importSystemId;  // --import-system <console> <dossier> : comme "Importer…" (fichiers système)
     std::filesystem::path importSystemDir;

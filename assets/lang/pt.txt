@@ -1005,3 +1005,16 @@ Fond d'écran mis à jour => Papel de parede atualizado
 Ce fichier n'est pas une police TrueType ou OpenType => Este arquivo não é uma fonte TrueType ou OpenType
 Impossible de copier la police : {} => Não foi possível copiar a fonte: {}
 Police : {} => Fonte: {}
+
+# --- Export et import des BIOS ---
+Mes BIOS => Meus BIOS
+Une copie de votre dossier bios dans un .zip, à garder pour vous ou à recopier sur un autre PC => Uma cópia da sua pasta bios em um .zip, para guardar ou copiar para outro PC
+Exporter => Exportar
+Importer => Importar
+Aucun BIOS à exporter : le dossier bios est vide => Nenhum BIOS para exportar: a pasta bios está vazia
+Impossible de créer {} => Não foi possível criar {}
+{n} fichiers exportés dans {} => {} arquivos exportados para {}
+{n} fichier exporté dans {} => {} arquivo exportado para {}
+Impossible d'ouvrir {} (archive .zip abîmée ?) => Não foi possível abrir {} (arquivo .zip danificado?)
+{n} fichiers restaurés depuis {} => {} arquivos restaurados de {}
+{n} fichier restauré depuis {} => {} arquivo restaurado de {}

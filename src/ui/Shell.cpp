@@ -285,6 +285,17 @@ void Shell::onDialogResult(UiContext& ctx, const DialogResult& result)
         ctx.notify("Émulateur enregistré : " + toUtf8(result.paths.front().filename()));
         break;
     }
+    case DialogPurpose::ExportBios: {
+        // "Enregistrer sous" ne force pas l'extension : on l'ajoute.
+        fs::path zip = result.paths.front();
+        if (toUtf8(zip.extension()) != ".zip" && toUtf8(zip.extension()) != ".ZIP")
+            zip += ".zip";
+        ctx.notify(ctx.bios.exportTo(zip));
+        break;
+    }
+    case DialogPurpose::ImportBios:
+        ctx.notify(ctx.bios.importArchive(result.paths.front()));
+        break;
     case DialogPurpose::ImportSystemFiles: {
         // Firmware PS3, clés Switch, BIOS Xbox : rangés et branchés sur l'émulateur.
         const System* system = Library::systemById(ctx.nav.externalChoosing);

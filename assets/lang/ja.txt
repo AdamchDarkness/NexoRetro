@@ -1005,3 +1005,16 @@ Fond d'écran mis à jour => 背景画像を更新しました
 Ce fichier n'est pas une police TrueType ou OpenType => このファイルは TrueType / OpenType フォントではありません
 Impossible de copier la police : {} => フォントをコピーできません：{}
 Police : {} => フォント：{}
+
+# --- Export et import des BIOS ---
+Mes BIOS => マイ BIOS
+Une copie de votre dossier bios dans un .zip, à garder pour vous ou à recopier sur un autre PC => bios フォルダーを .zip にコピーして、手元に保管したり別の PC に移したりできます
+Exporter => エクスポート
+Importer => インポート
+Aucun BIOS à exporter : le dossier bios est vide => エクスポートする BIOS がありません：bios フォルダーは空です
+Impossible de créer {} => {} を作成できません
+{n} fichiers exportés dans {} => {} 個のファイルを {} にエクスポートしました
+{n} fichier exporté dans {} => {} 個のファイルを {} にエクスポートしました
+Impossible d'ouvrir {} (archive .zip abîmée ?) => {} を開けません（.zip アーカイブが壊れている可能性があります）
+{n} fichiers restaurés depuis {} => {} 個のファイルを {} から復元しました
+{n} fichier restauré depuis {} => {} 個のファイルを {} から復元しました

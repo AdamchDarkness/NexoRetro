@@ -1011,3 +1011,16 @@ Fond d'écran mis à jour => Wallpaper updated
 Ce fichier n'est pas une police TrueType ou OpenType => This file is not a TrueType or OpenType font
 Impossible de copier la police : {} => Couldn't copy the font: {}
 Police : {} => Font: {}
+
+# --- Export et import des BIOS ---
+Mes BIOS => My BIOS
+Une copie de votre dossier bios dans un .zip, à garder pour vous ou à recopier sur un autre PC => A copy of your bios folder in a .zip, to keep for yourself or copy to another PC
+Exporter => Export
+Importer => Import
+Aucun BIOS à exporter : le dossier bios est vide => No BIOS to export: the bios folder is empty
+Impossible de créer {} => Couldn't create {}
+{n} fichiers exportés dans {} => {} files exported to {}
+{n} fichier exporté dans {} => {} file exported to {}
+Impossible d'ouvrir {} (archive .zip abîmée ?) => Couldn't open {} (damaged .zip archive?)
+{n} fichiers restaurés depuis {} => {} files restored from {}
+{n} fichier restauré depuis {} => {} file restored from {}

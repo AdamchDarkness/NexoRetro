@@ -142,6 +142,8 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
             out.testRemove = argv[++i];
         else if (arg == "--import-bios" && i + 1 < argc)
             out.importBios = fromUtf8(argv[++i]);
+        else if (arg == "--export-bios" && i + 1 < argc)
+            out.exportBios = fromUtf8(argv[++i]);
         else if (arg == "--install-external" && i + 1 < argc)
             out.installExternal = argv[++i];
         else if (arg == "--import-system" && i + 2 < argc) {

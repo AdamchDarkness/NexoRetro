@@ -1006,3 +1006,16 @@ Fond d'écran mis à jour => تم تحديث الخلفية
 Ce fichier n'est pas une police TrueType ou OpenType => هذا الملف ليس خط TrueType أو OpenType
 Impossible de copier la police : {} => تعذر نسخ الخط: {}
 Police : {} => الخط: {}
+
+# --- Export et import des BIOS ---
+Mes BIOS => ملفات BIOS الخاصة بي
+Une copie de votre dossier bios dans un .zip, à garder pour vous ou à recopier sur un autre PC => نسخة من مجلد bios في ملف .zip، للاحتفاظ بها أو نسخها إلى حاسوب آخر
+Exporter => تصدير
+Importer => استيراد
+Aucun BIOS à exporter : le dossier bios est vide => لا توجد ملفات BIOS للتصدير: مجلد bios فارغ
+Impossible de créer {} => تعذّر إنشاء {}
+{n} fichiers exportés dans {} => تم تصدير {} ملفات إلى {}
+{n} fichier exporté dans {} => تم تصدير {} ملف إلى {}
+Impossible d'ouvrir {} (archive .zip abîmée ?) => تعذّر فتح {} (أرشيف .zip تالف؟)
+{n} fichiers restaurés depuis {} => تمت استعادة {} ملفات من {}
+{n} fichier restauré depuis {} => تمت استعادة {} ملف من {}

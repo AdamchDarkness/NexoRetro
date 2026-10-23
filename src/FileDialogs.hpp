@@ -10,11 +10,12 @@
 
 #include <filesystem>
 #include <mutex>
+#include <string>
 #include <vector>
 
 // Ce que l'utilisateur voulait faire en ouvrant la fenêtre.
 enum class DialogPurpose { AddGameFiles, AddGameFolder, AddBiosFile, AddBiosFolder, ChooseCover, ImportSave, ChooseExternal, ImportSystemFiles,
-                           ChooseBackground, ChooseFont };
+                           ChooseBackground, ChooseFont, ExportBios, ImportBios };
 
 struct DialogResult {
     DialogPurpose purpose;
@@ -27,6 +28,10 @@ public:
     void openFolder(SDL_Window* window, DialogPurpose purpose);
     // Une police (.ttf, .otf).
     void openFonts(SDL_Window* window, DialogPurpose purpose);
+    // Une archive .zip à ouvrir, ou à créer ("Enregistrer sous", avec un nom
+    // proposé).
+    void openZip(SDL_Window* window, DialogPurpose purpose);
+    void saveZip(SDL_Window* window, DialogPurpose purpose, const std::string& suggestedName);
 
     // Les résultats arrivés depuis le dernier appel.
     std::vector<DialogResult> poll();

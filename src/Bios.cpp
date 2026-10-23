@@ -1,5 +1,6 @@
 #include "Bios.hpp"
 
+#include "Archive.hpp"
 #include "Hash.hpp"
 #include "Utf8.hpp"
 
@@ -28,6 +29,9 @@ const fs::path kPs2Dir = fs::path("pcsx2") / "bios";
 const fs::path kDolphinSys = fs::path("dolphin-emu") / "Sys";
 // FBNeo cherche ses BIOS à côté du jeu, ou dans bios/fbneo/.
 const fs::path kNeoGeoBios = fs::path("fbneo") / "neogeo.zip";
+// Posé dans les .zip exportés : il dit "ceci est une sauvegarde de Nexo
+// Retro", à remettre tel quel (avec les clés, firmwares... non répertoriés).
+constexpr const char* kBackupMarker = "nexoretro-bios.txt";
 // Flycast (Dreamcast) cherche ses BIOS dans bios/dc/.
 const fs::path kDreamcastDir = fs::path("dc");
 
@@ -604,4 +608,64 @@ std::string BiosManager::importFolder(const fs::path& folder)
     for (const std::string& s : systems)
         list += (list.empty() ? "" : ", ") + s;
     return std::to_string(found) + (found > 1 ? " BIOS reconnus et rangés : " : " BIOS reconnu et rangé : ") + list;
+}
+
+std::string BiosManager::exportTo(const fs::path& zip)
+{
+    std::error_code ec;
+    int files = 0;
+    for (auto it = fs::recursive_directory_iterator(m_dir, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+        files += it->is_regular_file(ec) && it->path().filename() != kBackupMarker;
+    if (files == 0)
+        return "Aucun BIOS à exporter : le dossier bios est vide";
+    // Le marqueur n'existe que le temps de créer l'archive.
+    const fs::path marker = m_dir / kBackupMarker;
+    std::ofstream(marker) << "Sauvegarde des BIOS de Nexo Retro\n";
+    const bool ok = archive::zipFolder(m_dir, zip);
+    fs::remove(marker, ec);
+    if (!ok)
+        return "Impossible de créer " + toUtf8(zip.filename());
+    return std::to_string(files) + (files > 1 ? " fichiers exportés dans " : " fichier exporté dans ") + toUtf8(zip.filename());
+}
+
+std::string BiosManager::importArchive(const fs::path& zip)
+{
+    // Certains BIOS SONT des .zip (neogeo.zip, le romset de FBNeo) : rangés
+    // tels quels, sans les ouvrir.
+    std::string name = toUtf8(zip.filename());
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (name == "neogeo.zip" || identify(zip))
+        return import(zip);
+    // On décompresse dans un dossier temporaire, effacé ensuite. Il porte
+    // le nom de l'archive : c'est lui qu'affiche importFolder().
+    std::error_code ec;
+    const fs::path temp = fs::temp_directory_path(ec) / "NexoRetro" / zip.stem();
+    fs::remove_all(temp, ec);
+    if (!archive::extract(zip, temp)) {
+        fs::remove_all(temp, ec);
+        return "Impossible d'ouvrir " + toUtf8(zip.filename()) + " (archive .zip abîmée ?)";
+    }
+    std::string message;
+    if (fs::exists(temp / kBackupMarker, ec)) {
+        // Une sauvegarde de Nexo Retro : chaque fichier reprend sa place.
+        int files = 0;
+        for (auto it = fs::recursive_directory_iterator(temp, ec); !ec && it != fs::recursive_directory_iterator();
+             it.increment(ec)) {
+            std::error_code fileEc;
+            if (!it->is_regular_file(fileEc) || it->path().filename() == kBackupMarker)
+                continue;
+            const fs::path target = m_dir / fs::relative(it->path(), temp, fileEc);
+            fs::create_directories(target.parent_path(), fileEc);
+            if (fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, fileEc))
+                ++files;
+        }
+        refresh();
+        message = std::to_string(files) + (files > 1 ? " fichiers restaurés depuis " : " fichier restauré depuis ") +
+                  toUtf8(zip.filename());
+    }
+    else {
+        message = importFolder(temp);
+    }
+    fs::remove_all(temp, ec);
+    return message;
 }

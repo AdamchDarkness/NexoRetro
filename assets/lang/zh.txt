@@ -1005,3 +1005,16 @@ Fond d'écran mis à jour => 背景图片已更新
 Ce fichier n'est pas une police TrueType ou OpenType => 此文件不是 TrueType 或 OpenType 字体
 Impossible de copier la police : {} => 无法复制字体：{}
 Police : {} => 字体：{}
+
+# --- Export et import des BIOS ---
+Mes BIOS => 我的 BIOS
+Une copie de votre dossier bios dans un .zip, à garder pour vous ou à recopier sur un autre PC => 将 bios 文件夹复制为 .zip，可自行保存或复制到另一台电脑
+Exporter => 导出
+Importer => 导入
+Aucun BIOS à exporter : le dossier bios est vide => 没有可导出的 BIOS：bios 文件夹为空
+Impossible de créer {} => 无法创建 {}
+{n} fichiers exportés dans {} => 已将 {} 个文件导出到 {}
+{n} fichier exporté dans {} => 已将 {} 个文件导出到 {}
+Impossible d'ouvrir {} (archive .zip abîmée ?) => 无法打开 {}（.zip 压缩包已损坏？）
+{n} fichiers restaurés depuis {} => {} 个文件已从 {} 恢复
+{n} fichier restauré depuis {} => {} 个文件已从 {} 恢复

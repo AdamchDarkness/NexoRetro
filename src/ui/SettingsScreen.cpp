@@ -1361,6 +1361,18 @@ void SettingsScreen::draw(UiContext& ctx)
         changed |= settingRow("Sauvegarde automatique", "Un état est créé quand vous quittez un jeu, pour le reprendre", w,
                               px(46.0f), [&] { return toggle("##auto", &s.autoSaveState); });
         valueRow("Raccourcis", "Sauvegarde d'état rapide", "F2 sauver · F4 charger", nullptr, {});
+        // Vos BIOS dans un .zip (et retour) : pour les garder de côté ou les
+        // recopier sur un autre PC. La suite : Shell::onDialogResult.
+        settingRow("Mes BIOS", "Une copie de votre dossier bios dans un .zip, à garder pour vous ou à recopier sur un autre PC",
+                   w, px(130.0f + 10.0f + 130.0f), [&] {
+                       const ImVec2 p = ImGui::GetCursorScreenPos();
+                       if (button("Exporter", {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f, .fontSize = 13.0f}))
+                           ctx.openDialog(DialogPurpose::ExportBios);
+                       ImGui::SetCursorScreenPos(ImVec2(p.x + px(140.0f), p.y));
+                       if (button("Importer", {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f, .fontSize = 13.0f}))
+                           ctx.openDialog(DialogPurpose::ImportBios);
+                       return false;
+                   });
         break;
     }
     case 4: {

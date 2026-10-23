@@ -84,6 +84,17 @@ App::App(AppOptions options)
                     case DialogPurpose::ChooseFont: m_dialogs.openFonts(m_video.window(), purpose); break;
                     case DialogPurpose::ImportSave:
                     case DialogPurpose::ChooseExternal: m_dialogs.openFiles(m_video.window(), purpose, false, false); break;
+                    case DialogPurpose::ImportBios: m_dialogs.openZip(m_video.window(), purpose); break;
+                    case DialogPurpose::ExportBios: {
+                        // Nom proposé : NexoRetro-BIOS-2026-10-23.zip
+                        const std::time_t now = std::time(nullptr);
+                        std::tm day{};
+                        localtime_s(&day, &now);
+                        char name[64];
+                        std::strftime(name, sizeof(name), "NexoRetro-BIOS-%Y-%m-%d.zip", &day);
+                        m_dialogs.saveZip(m_video.window(), purpose, name);
+                        break;
+                    }
                     }
                 },
                 [this] { rescan(); },
@@ -325,8 +336,15 @@ bool App::init()
     }
     if (!m_options.importBios.empty()) {
         std::error_code biosEc;
-        const std::string result = fs::is_directory(m_options.importBios, biosEc) ? m_bios.importFolder(m_options.importBios)
-                                                                               : m_bios.import(m_options.importBios);
+        const fs::path& source = m_options.importBios;
+        const std::string result = fs::is_directory(source, biosEc) ? m_bios.importFolder(source)
+                                   : toUtf8(source.extension()) == ".zip" ? m_bios.importArchive(source)
+                                                                          : m_bios.import(source);
+        SDL_Log("TEST BIOS : %s", result.c_str());
+        m_ui.notify(result);
+    }
+    if (!m_options.exportBios.empty()) {
+        const std::string result = m_bios.exportTo(m_options.exportBios);
         SDL_Log("TEST BIOS : %s", result.c_str());
         m_ui.notify(result);
     }
