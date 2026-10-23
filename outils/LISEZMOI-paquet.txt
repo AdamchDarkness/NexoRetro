@@ -5,7 +5,7 @@ FRANÇAIS
 --------
 1. Décompressez ce dossier où vous voulez (Bureau, Documents...), mais PAS
    dans "Program Files" : l'émulateur range ses fichiers à côté de lui.
-2. Lancez emulateur.exe. Windows peut afficher "Windows a protégé votre
+2. Lancez NexoRetro.exe. Windows peut afficher "Windows a protégé votre
    ordinateur" (le programme n'est pas signé) : cliquez sur
    "Informations complémentaires" puis "Exécuter quand même".
 3. L'interface est en anglais : Settings > Display > Language > Français.
@@ -31,7 +31,7 @@ ENGLISH
 -------
 1. Unzip this folder anywhere (Desktop, Documents...), but NOT in "Program
    Files": the emulator keeps its files next to itself.
-2. Run emulateur.exe. Windows may say "Windows protected your PC" (the
+2. Run NexoRetro.exe. Windows may say "Windows protected your PC" (the
    program isn't signed): click "More info" then "Run anyway".
 3. Add YOUR games (Add button). No games or BIOS files are included: use
    copies of your own games and consoles.

@@ -45,5 +45,6 @@ private:
     bool m_initialized = false;
     bool m_rendererReady = false;
     bool m_fontsReady = false;
+    std::filesystem::path m_fontDir;
     std::vector<Notification> m_notifications;
 };

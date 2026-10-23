@@ -2,7 +2,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File outils/creer-paquet.ps1
 #
-# Contenu : emulateur.exe (compilé en Release, sans DLL à installer), ses
+# Contenu : NexoRetro.exe (compilé en Release, sans DLL à installer), ses
 # polices et langues (assets), les cores de build\Release\cores (pour que
 # l'ami ait EXACTEMENT les mêmes émulateurs : obligatoire pour jouer en
 # ligne) et un mode d'emploi. Jamais de jeux, de BIOS, de sauvegardes ni de
@@ -25,15 +25,15 @@ param(
 $ErrorActionPreference = "Stop"
 $projet = Split-Path -Parent $PSScriptRoot
 $release = Join-Path $projet "build\Release"
-$exe = Join-Path $release "emulateur.exe"
+$exe = Join-Path $release "NexoRetro.exe"
 if (-not (Test-Path $exe)) { throw "Compilez d'abord en Release : cmake --build --preset release" }
 
-# La version, lue dans CMakeLists.txt : project(Emulateur VERSION 0.1.0 ...)
+# La version, lue dans CMakeLists.txt : project(NexoRetro VERSION 0.1.0 ...)
 $version = (Select-String -Path (Join-Path $projet "CMakeLists.txt") -Pattern "VERSION (\d+\.\d+\.\d+)").Matches[0].Groups[1].Value
 
 $dist = Join-Path $projet "dist"
-$dossier = Join-Path $dist "Emulateur"
-$zip = Join-Path $dist "Emulateur-$version.zip"
+$dossier = Join-Path $dist "NexoRetro"
+$zip = Join-Path $dist "NexoRetro-$version.zip"
 if (Test-Path $dossier) { Remove-Item $dossier -Recurse -Force }
 New-Item -ItemType Directory -Force $dossier | Out-Null
 

@@ -27,3 +27,6 @@ cores/
 dist/
 pcsx2_bad_shader_*.txt
 *.log
+
+# Notes et listes d'idées personnelles : jamais publiées
+IDEES*.md

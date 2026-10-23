@@ -1,7 +1,7 @@
 // Point d'entrée : lit la ligne de commande et lance l'application.
 //
-//   emulateur                         -> ouvre la bibliothèque
-//   emulateur <core.dll> [jeu]        -> lance directement un jeu
+//   NexoRetro                         -> ouvre la bibliothèque
+//   NexoRetro <core.dll> [jeu]        -> lance directement un jeu
 
 #include "App.hpp"
 #include "Utf8.hpp"
@@ -25,7 +25,7 @@ namespace {
 void printUsage()
 {
     std::puts(
-        "Usage : emulateur [core.dll [jeu]] [--data <dossier>]\n"
+        "Usage : NexoRetro [core.dll [jeu]] [--data <dossier>]\n"
         "        [--frames <n> [--screenshot <fichier.bmp>]]   (tests automatiques)\n"
         "        [--screen home|library|game|covers|add|bios|friends|settings|pads|infos] [--menu]\n"
         "        [--clavier | --manette N]   (deux émulateurs sur le même PC)\n"
@@ -49,6 +49,8 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
             out.exitScreenshot = fromUtf8(argv[++i]);
         else if (arg == "--settings-tab" && i + 1 < argc)
             out.settingsTab = std::atoi(argv[++i]);
+        else if (arg == "--big-picture")
+            out.bigPicture = true;
         else if (arg == "--library-view" && i + 1 < argc)
             out.libraryView = std::atoi(argv[++i]);
         else if (arg == "--screen" && i + 1 < argc)

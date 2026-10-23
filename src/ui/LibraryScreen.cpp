@@ -2,6 +2,7 @@
 // éditeur), tri, et trois façons de voir ses jeux : grille de jaquettes,
 // liste détaillée ou carrousel.
 
+#include "../Lang.hpp"
 #include "Screens.hpp"
 #include "Widgets.hpp"
 
@@ -53,6 +54,16 @@ struct Category {
     std::string label;
     ImU32 dot;
 };
+
+// La largeur utile de la zone des jeux, barre de défilement COMPRISE. Si on
+// prenait seulement la place restante (GetContentRegionAvail), elle
+// changerait selon que la barre est affichée ou non : la grille perdrait
+// une colonne, la page raccourcirait, la barre disparaîtrait... et tout
+// recommencerait à l'image suivante (la page clignote).
+float stableWidth()
+{
+    return ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize - px(12.0f);
+}
 
 bool inCategory(const UiContext& ctx, const Game& g, const std::string& id)
 {
@@ -195,105 +206,109 @@ void LibraryScreen::draw(UiContext& ctx)
     else if (m_sort == 3)
         std::stable_sort(games.begin(), games.end(), [&](const Game* a, const Game* b) { return year(a) < year(b); });
 
-    // --- En-tête : titre à gauche ; recherche, vues et tri à droite.
+    // --- En-tête : titre et nombre de jeux à gauche ; à droite, seulement la
+    // recherche, le bouton « Filtres » et le choix de la vue.
     const ImVec2 headerPos = ImGui::GetCursorPos();
     std::string subtitle = std::to_string(games.size()) + (games.size() > 1 ? " jeux" : " jeu");
     if (const int pending = ctx.scraper.pending(); pending > 0)
         subtitle += " · recherche des jaquettes en ligne (" + std::to_string(pending) + ")";
     pageTitle("Bibliothèque", subtitle);
     const ImVec2 afterTitle = ImGui::GetCursorPos();
-    static const char* const sorts[] = {"Titre (A → Z)", "Dernière partie", "Temps de jeu", "Année de sortie"};
+
+    const int activeFilters = (m_genre.empty() ? 0 : 1) + (m_publisher.empty() ? 0 : 1) + (m_decade > 0 ? 1 : 0) +
+                              (m_players > 0 ? 1 : 0);
     const float searchW = 300.0f;
-    const float sortW = 190.0f;
-    const float viewsW = 3 * 40.0f + 2 * 4.0f;
-    ImGui::SetCursorPos(ImVec2(headerPos.x + width - px(searchW + 10.0f + viewsW + 10.0f + sortW), headerPos.y + px(18.0f)));
+    const char* filtersLabel = "Filtres";
+    const float filtersW = draw::measure(Weight::Bold, 14.0f, filtersLabel).x / theme::scale() + 18.0f * 2 + 17.0f + 8.0f;
+    const float viewsW = 3 * 32.0f + 6.0f;
+    ImGui::SetCursorPos(
+        ImVec2(headerPos.x + width - px(searchW + 10.0f + filtersW + 10.0f + viewsW), headerPos.y + px(18.0f)));
     searchField("##search", m_search, sizeof(m_search), "Rechercher un jeu", searchW, ctx.nav.focusSearch);
     ctx.nav.focusSearch = false;
     sameLine();
-    {
-        // Les trois vues.
-        struct View {
-            draw::Icon icon;
-            const char* tip;
-        };
-        static const View views[] = {{draw::Icon::Grid, "Grille de jaquettes"},
-                                     {draw::Icon::List, "Liste détaillée"},
-                                     {draw::Icon::Carousel, "Carrousel"}};
-        for (int i = 0; i < 3; ++i) {
-            if (i > 0)
-                sameLine(4.0f);
-            ImGui::PushID(i);
-            const bool selected = ctx.settings.libraryView == i;
-            if (iconButton("##view", views[i].icon, selected ? ButtonStyle::Primary : ButtonStyle::Soft, 40.0f, views[i].tip)) {
-                ctx.settings.libraryView = i;
-                ctx.settingsChanged();
-            }
-            ImGui::PopID();
-        }
+    if (button("Filtres##open", {.style = activeFilters > 0 ? ButtonStyle::Primary : ButtonStyle::Outline,
+                                 .icon = draw::Icon::Filter, .height = 38.0f, .tooltip = "Trier et filtrer"}) ||
+        ctx.nav.openFilters) {
+        ImGui::OpenPopup("##filters");
+        ctx.nav.openFilters = false;
+    }
+    const ImVec2 filtersMin = ImGui::GetItemRectMin();
+    const ImVec2 filtersMax = ImGui::GetItemRectMax();
+    if (activeFilters > 0) {
+        // Une pastille bleue avec le nombre de filtres actifs.
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 c(filtersMax.x - px(4.0f), filtersMin.y + px(4.0f));
+        dl->AddCircleFilled(c, px(10.0f), theme::Accent);
+        const std::string n = std::to_string(activeFilters);
+        const ImVec2 ns = draw::measure(Weight::Bold, 11.0f, n);
+        draw::text(dl, ImVec2(c.x - ns.x / 2, c.y - ns.y / 2), Weight::Bold, 11.0f, theme::Surface, n);
     }
     sameLine();
-    combo("##sort", sorts, &m_sort, sortW);
+    drawViewSwitch(ctx);
+    drawFiltersPopup(genres, publishers, decades, ImVec2(filtersMax.x, filtersMax.y + px(8.0f)));
     ImGui::SetCursorPos(ImVec2(afterTitle.x, afterTitle.y + px(14.0f)));
 
-    // --- Puces de catégorie, qui passent à la ligne si besoin.
-    const float rowStart = ImGui::GetCursorPosX();
-    for (size_t i = 0; i < categories.size(); ++i) {
-        const Category& c = categories[i];
-        int n = 0;
-        for (const Game& g : all)
-            n += inCategory(ctx, g, c.id) ? 1 : 0;
-        const std::string count = std::to_string(n);
-        if (i > 0) {
-            const float w = chipWidth(c.label.c_str(), count.c_str());
-            ImGui::SameLine(0.0f, px(8.0f));
-            if (ImGui::GetCursorPosX() + w > rowStart + width) {
-                ImGui::NewLine();
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + px(0.0f));
-            }
-        }
-        ImGui::PushID(c.id.c_str());
-        if (chip("##chip", c.label.c_str(), count.c_str(), c.dot, m_filter == c.id))
-            m_filter = c.id;
-        ImGui::PopID();
-    }
-    space(6.0f);
-
-    // --- Filtres : genre, décennie, joueurs, éditeur.
+    // --- Puces de catégorie, sur une seule ligne qui défile (molette).
     {
-        filterCombo("##genre", "Tous les genres", genres, m_genre, 200.0f);
-        sameLine(8.0f);
-        std::vector<std::string> decadeNames = {"Toutes les années"};
-        std::vector<int> decadeValues = {0};
-        for (int d : decades) {
-            decadeNames.push_back(d < 2000 ? "Années " + std::to_string(d % 100) : "Années " + std::to_string(d));
-            decadeValues.push_back(d);
+        const float chipsH = px(42.0f);
+        ImGui::BeginChild("##chips", ImVec2(width, chipsH), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        for (size_t i = 0; i < categories.size(); ++i) {
+            const Category& c = categories[i];
+            int n = 0;
+            for (const Game& g : all)
+                n += inCategory(ctx, g, c.id) ? 1 : 0;
+            const std::string count = std::to_string(n);
+            if (i > 0)
+                ImGui::SameLine(0.0f, px(8.0f));
+            ImGui::PushID(c.id.c_str());
+            if (chip("##chip", c.label.c_str(), count.c_str(), c.dot, m_filter == c.id))
+                m_filter = c.id;
+            ImGui::PopID();
         }
-        std::vector<const char*> decadeItems;
-        int decadeIndex = 0;
-        for (size_t i = 0; i < decadeNames.size(); ++i) {
-            decadeItems.push_back(decadeNames[i].c_str());
-            if (decadeValues[i] == m_decade)
-                decadeIndex = static_cast<int>(i);
+        // La molette (verticale ou horizontale) fait défiler les puces.
+        if (ImGui::IsWindowHovered()) {
+            const ImGuiIO& io = ImGui::GetIO();
+            const float wheel = io.MouseWheel != 0.0f ? io.MouseWheel : io.MouseWheelH;
+            if (wheel != 0.0f)
+                ImGui::SetScrollX(ImGui::GetScrollX() - wheel * px(90.0f));
         }
-        if (combo("##decade", decadeItems, &decadeIndex, 180.0f))
-            m_decade = decadeValues[static_cast<size_t>(decadeIndex)];
-        sameLine(8.0f);
-        static const char* const players[] = {"Tous les joueurs", "1 joueur et +", "2 joueurs et +", "3 joueurs et +",
-                                              "4 joueurs et +"};
-        combo("##players", players, &m_players, 180.0f);
-        sameLine(8.0f);
-        filterCombo("##publisher", "Tous les éditeurs", publishers, m_publisher, 220.0f);
-        if (!m_genre.empty() || m_decade > 0 || m_players > 0 || !m_publisher.empty() || m_search[0] != '\0') {
-            sameLine(14.0f);
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + px(10.0f));
-            if (link("Effacer les filtres", 13.0f)) {
-                m_genre.clear();
-                m_publisher.clear();
-                m_decade = 0;
-                m_players = 0;
-                m_search[0] = '\0';
-            }
-        }
+        // Un fondu sur les bords quand des puces sont cachées.
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 wMin = ImGui::GetWindowPos();
+        const ImU32 clear = theme::withAlpha(theme::Ground, 0);
+        if (ImGui::GetScrollX() < ImGui::GetScrollMaxX() - 1.0f)
+            dl->AddRectFilledMultiColor(ImVec2(wMin.x + width - px(48.0f), wMin.y), ImVec2(wMin.x + width, wMin.y + chipsH), clear,
+                                        theme::Ground, theme::Ground, clear);
+        if (ImGui::GetScrollX() > 1.0f)
+            dl->AddRectFilledMultiColor(wMin, ImVec2(wMin.x + px(48.0f), wMin.y + chipsH), theme::Ground, clear, clear,
+                                        theme::Ground);
+        ImGui::EndChild();
+    }
+
+    // --- Les filtres actifs, en pastilles supprimables (rien s'il n'y en a pas).
+    if (activeFilters > 0) {
+        space(4.0f);
+        bool first = true;
+        auto removable = [&](const std::string& label) {
+            if (!first)
+                sameLine(8.0f);
+            first = false;
+            return removablePill(label);
+        };
+        if (!m_genre.empty() && removable(m_genre))
+            m_genre.clear();
+        if (m_decade > 0 && removable(m_decade < 2000 ? "Années " + std::to_string(m_decade % 100)
+                                                      : "Années " + std::to_string(m_decade)))
+            m_decade = 0;
+        if (m_players > 0 && removable(std::to_string(m_players) + (m_players > 1 ? " joueurs et +" : " joueur et +")))
+            m_players = 0;
+        if (!m_publisher.empty() && removable(m_publisher))
+            m_publisher.clear();
+        sameLine(14.0f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + px(7.0f));
+        if (link("Tout effacer", 13.0f))
+            resetFilters();
     }
     space(10.0f);
 
@@ -328,11 +343,142 @@ void LibraryScreen::draw(UiContext& ctx)
     ImGui::EndChild();
 }
 
+// --- En-tête : vues, filtres -------------------------------------------------------------
+
+void LibraryScreen::resetFilters()
+{
+    m_genre.clear();
+    m_publisher.clear();
+    m_decade = 0;
+    m_players = 0;
+    m_sort = 0;
+}
+
+// Les trois vues, dans une seule pilule : l'icône choisie sur un rond noir.
+void LibraryScreen::drawViewSwitch(UiContext& ctx)
+{
+    struct View {
+        draw::Icon icon;
+        const char* tip;
+    };
+    static const View views[] = {{draw::Icon::Grid, "Grille de jaquettes"},
+                                 {draw::Icon::List, "Liste détaillée"},
+                                 {draw::Icon::Carousel, "Carrousel"}};
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float item = px(32.0f);
+    const float h = px(38.0f);
+    draw::rect(dl, p, ImVec2(p.x + item * 3 + px(6.0f), p.y + h), theme::Surface, h / 2, theme::Hairline);
+    for (int i = 0; i < 3; ++i) {
+        const ImVec2 min(p.x + px(3.0f) + item * i, p.y + (h - item) / 2);
+        ImGui::SetCursorScreenPos(min);
+        ImGui::PushID(i);
+        if (ImGui::InvisibleButton("##view", ImVec2(item, item))) {
+            ctx.settings.libraryView = i;
+            ctx.settingsChanged();
+        }
+        const bool hovered = ImGui::IsItemHovered();
+        if (hovered)
+            ImGui::SetTooltip("%s", std::string(lang::tr(views[i].tip)).c_str());
+        ImGui::PopID();
+        const bool selected = ctx.settings.libraryView == i;
+        if (selected || hovered)
+            dl->AddCircleFilled(ImVec2(min.x + item / 2, min.y + item / 2), item / 2, selected ? theme::Ink : theme::Ground);
+        draw::icon(dl, views[i].icon, ImVec2(min.x + px(8.0f), min.y + px(8.0f)), px(16.0f),
+                   selected ? theme::Surface : theme::Muted);
+    }
+    ImGui::SetCursorScreenPos(p);
+    ImGui::Dummy(ImVec2(item * 3 + px(6.0f), h));
+}
+
+// La fenêtre « Trier et filtrer », sous le bouton Filtres (topRight : son coin).
+void LibraryScreen::drawFiltersPopup(const std::set<std::string>& genres, const std::set<std::string>& publishers,
+                                     const std::set<int>& decades, ImVec2 topRight)
+{
+    const float popupW = px(380.0f);
+    ImGui::SetNextWindowPos(ImVec2(topRight.x - popupW, topRight.y), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(popupW, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, theme::Surface);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, px(22.0f, 22.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, px(20.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+    if (ImGui::BeginPopup("##filters")) {
+        overline("TRIER ET FILTRER");
+        space(2.0f);
+        const float comboW = 220.0f;
+        // Une ligne : le libellé à gauche, la liste déroulante à droite.
+        auto row = [&](const char* label, auto&& control) {
+            const float y = ImGui::GetCursorPosY();
+            ImGui::SetCursorPosY(y + px(11.0f));
+            text(label, 13.0f, Weight::Bold, theme::Muted);
+            ImGui::SetCursorPos(ImVec2(ImGui::GetContentRegionMax().x - px(comboW), y));
+            control();
+            space(2.0f);
+        };
+        static const char* const sorts[] = {"Titre (A → Z)", "Dernière partie", "Temps de jeu", "Année de sortie"};
+        row("Trier par", [&] { combo("##sort", sorts, &m_sort, comboW); });
+        row("Genre", [&] { filterCombo("##genre", "Tous les genres", genres, m_genre, comboW); });
+        row("Année", [&] {
+            std::vector<std::string> names = {"Toutes les années"};
+            std::vector<int> values = {0};
+            for (int d : decades) {
+                names.push_back(d < 2000 ? "Années " + std::to_string(d % 100) : "Années " + std::to_string(d));
+                values.push_back(d);
+            }
+            std::vector<const char*> items;
+            int index = 0;
+            for (size_t i = 0; i < names.size(); ++i) {
+                items.push_back(names[i].c_str());
+                if (values[i] == m_decade)
+                    index = static_cast<int>(i);
+            }
+            if (combo("##decade", items, &index, comboW))
+                m_decade = values[static_cast<size_t>(index)];
+        });
+        row("Joueurs", [&] {
+            static const char* const players[] = {"Tous les joueurs", "1 joueur et +", "2 joueurs et +", "3 joueurs et +",
+                                                  "4 joueurs et +"};
+            combo("##players", players, &m_players, comboW);
+        });
+        row("Éditeur", [&] { filterCombo("##publisher", "Tous les éditeurs", publishers, m_publisher, comboW); });
+        space(8.0f);
+        if (button("Réinitialiser##filters", {.style = ButtonStyle::Ghost, .icon = draw::Icon::Refresh, .height = 40.0f}))
+            resetFilters();
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - px(110.0f));
+        if (button("Fermer##filters", {.style = ButtonStyle::Primary, .height = 40.0f, .width = 110.0f}))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor();
+}
+
+// Une pastille « Action ✕ » : un clic la retire.
+bool LibraryScreen::removablePill(const std::string& label)
+{
+    const ImVec2 ts = draw::measure(Weight::Bold, 13.0f, label);
+    const ImVec2 size(ts.x + px(14.0f + 8.0f + 12.0f + 12.0f), px(32.0f));
+    ImGui::PushID(label.c_str());
+    const bool clicked = ImGui::InvisibleButton("##pill", size);
+    const bool hovered = ImGui::IsItemHovered();
+    ImGui::PopID();
+    if (hovered)
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 min = ImGui::GetItemRectMin();
+    draw::rect(dl, min, ImVec2(min.x + size.x, min.y + size.y), hovered ? theme::AccentSoft : theme::Surface, size.y / 2,
+               hovered ? theme::Accent : theme::Hairline);
+    draw::text(dl, ImVec2(min.x + px(14.0f), min.y + (size.y - ts.y) / 2), Weight::Bold, 13.0f, theme::Ink, label);
+    draw::icon(dl, draw::Icon::Close, ImVec2(min.x + size.x - px(26.0f), min.y + px(10.0f)), px(12.0f),
+               hovered ? theme::Accent : theme::Muted);
+    return clicked;
+}
+
 // --- Grille de jaquettes --------------------------------------------------------------
 
 void LibraryScreen::drawGrid(UiContext& ctx, const std::vector<const Game*>& games)
 {
-    const float gridW = ImGui::GetContentRegionAvail().x - px(12.0f); // place pour la barre de défilement
+    const float gridW = stableWidth();
     const float gapX = px(22.0f);
     const int columns = std::max(2, static_cast<int>((gridW + gapX) / (px(170.0f) + gapX)));
     const float tileW = (gridW - gapX * (columns - 1)) / columns;
@@ -359,7 +505,7 @@ void LibraryScreen::drawGrid(UiContext& ctx, const std::vector<const Game*>& gam
 void LibraryScreen::drawList(UiContext& ctx, const std::vector<const Game*>& games)
 {
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float rowW = ImGui::GetContentRegionAvail().x - px(12.0f);
+    const float rowW = stableWidth();
     const float rowH = px(72.0f);
     // Les colonnes : jaquette + titre | console | année | genre | temps de jeu | dernière partie.
     const float colSystem = rowW * 0.42f;

@@ -63,7 +63,7 @@ void PortMapping::run(uint16_t port)
     // 2. Demander la redirection du port UDP vers ce PC (pour 2 heures).
     const std::string portText = std::to_string(port);
     const int result = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, portText.c_str(), portText.c_str(),
-                                           lanAddress, "Emulateur (jeu en ligne)", "UDP", nullptr, "7200");
+                                           lanAddress, "Nexo Retro (jeu en ligne)", "UDP", nullptr, "7200");
     if (result != UPNPCOMMAND_SUCCESS) {
         FreeUPNPUrls(&urls);
         return finish(false, std::string("La box a refusé l'ouverture du port : ") + strupnperror(result));

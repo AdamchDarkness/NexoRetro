@@ -12,7 +12,7 @@
 namespace {
 
 // Nos infos d'application, si le core ne donne pas les siennes.
-const VkApplicationInfo kAppInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "Emulateur", 1, "Emulateur", 1,
+const VkApplicationInfo kAppInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "Nexo Retro", 1, "Nexo Retro", 1,
                                  VK_API_VERSION_1_1};
 
 } // namespace

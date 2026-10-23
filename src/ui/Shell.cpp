@@ -41,6 +41,18 @@ Screen tabOf(Screen s)
 
 void Shell::draw(UiContext& ctx)
 {
+    // Big Picture : un écran à part, qui occupe toute la fenêtre.
+    if (ctx.nav.bigPicture) {
+        m_bigPicture.draw(ctx);
+        return;
+    }
+    // Le bouton Start de la manette ouvre le mode Big Picture (sauf pendant
+    // une fenêtre surgissante ou la saisie d'un texte).
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false) && !ImGui::GetIO().WantTextInput &&
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
+        ctx.setBigPicture(true);
+        return;
+    }
     // Une fenêtre ImGui sans bordure qui occupe toute la fenêtre Windows.
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -86,14 +98,12 @@ void Shell::drawTopBar(UiContext& ctx)
 
     // Logo : carré noir avec un triangle "lecture", puis le nom.
     ImGui::SetCursorPos(ImVec2(px(40.0f), (barHeight - px(30.0f)) / 2));
-    const float logoWidth = px(30.0f + 10.0f) + draw::measure(Weight::ExtraBold, 17.0f, "Emulateur").x;
+    // Logo : l'icône de Nexo Retro, puis son nom. Un clic ramène à l'accueil.
+    const float logoWidth = px(30.0f + 10.0f + 5.0f) + draw::measure(Weight::ExtraBold, 17.0f, "Nexo").x +
+                            draw::measure(Weight::ExtraBold, 17.0f, "Retro").x;
     if (ImGui::InvisibleButton("##logo", ImVec2(logoWidth, px(30.0f))))
         ctx.nav.go(Screen::Home);
-    const ImVec2 logo = ImGui::GetItemRectMin();
-    draw::rect(dl, logo, ImVec2(logo.x + px(30.0f), logo.y + px(30.0f)), theme::Ink, px(9.0f));
-    draw::icon(dl, draw::Icon::Play, ImVec2(logo.x + px(8.0f), logo.y + px(8.0f)), px(14.0f), theme::Surface);
-    const ImVec2 nameSize = draw::measure(Weight::ExtraBold, 17.0f, "Emulateur");
-    draw::text(dl, ImVec2(logo.x + px(40.0f), centerY - nameSize.y / 2), Weight::ExtraBold, 17.0f, theme::Ink, "Emulateur");
+    brand(ctx, dl, ImGui::GetItemRectMin(), 30.0f, 17.0f, theme::Ink);
 
     // Navigation en pilule, centrée.
     const float itemPad = px(18.0f);
@@ -152,6 +162,10 @@ void Shell::drawTopBar(UiContext& ctx)
         ctx.nav.librarySystem = "all";
         ctx.nav.focusSearch = true;
     }
+    right -= px(10.0f + 40.0f);
+    ImGui::SetCursorScreenPos(ImVec2(right, centerY - px(20.0f)));
+    if (iconButton("##bigpicture", draw::Icon::Tv, ButtonStyle::Outline, 40.0f, "Mode Big Picture (Start à la manette)"))
+        ctx.setBigPicture(true);
 }
 
 void Shell::onDialogResult(UiContext& ctx, const DialogResult& result)

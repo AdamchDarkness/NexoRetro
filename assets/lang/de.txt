@@ -884,3 +884,21 @@ Dernière vérification : {} · tout est à jour => Letzte Prüfung: {} · alles
 Dernière vérification : {} · {n} mise(s) à jour disponible(s) => Letzte Prüfung: {} · {} Update(s) verfügbar
 Vérifier maintenant => Jetzt prüfen
 {} · nouvelle version disponible => {} · neue Version verfügbar
+
+# --- Bibliothèque allégée, mode Big Picture ---
+Filtres => Filter
+Trier et filtrer => Sortieren und filtern
+TRIER ET FILTRER => SORTIEREN UND FILTERN
+Trier par => Sortieren nach
+Année => Jahr
+Réinitialiser => Zurücksetzen
+Fermer => Schließen
+Tout effacer => Alle löschen
+Mode Big Picture (Start à la manette) => Big-Picture-Modus (Start am Controller)
+Démarrer en Big Picture => Im Big-Picture-Modus starten
+Plein écran, grandes jaquettes, tout à la manette (Start pour l'ouvrir) => Vollbild, große Cover, alles mit dem Controller (Start zum Öffnen)
+Aucun favori pour l'instant => Noch keine Favoriten
+Aucun jeu dans cette catégorie => Keine Spiele in dieser Kategorie
+Appuyez sur Y sur un jeu pour l'ajouter aux favoris. => Drücke Y bei einem Spiel, um es zu den Favoriten hinzuzufügen.
+Ajoutez des jeux depuis l'interface habituelle. => Füge Spiele über die normale Oberfläche hinzu.
+Quitter Big Picture => Big Picture beenden

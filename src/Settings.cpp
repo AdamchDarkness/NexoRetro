@@ -16,6 +16,7 @@ void Settings::load(const std::filesystem::path& file)
         const std::string value = line.substr(eq + 1);
         const int number = std::atoi(value.c_str());
         if (key == "fullscreenOnLaunch") fullscreenOnLaunch = number != 0;
+        else if (key == "bigPictureOnStart") bigPictureOnStart = number != 0;
         else if (key == "language" && !value.empty()) language = value;
         else if (key == "scaling") scaling = number;
         else if (key == "aspect") aspect = number;
@@ -50,6 +51,7 @@ void Settings::save(const std::filesystem::path& file) const
     std::ofstream out(file, std::ios::trunc);
     out << "language=" << language << '\n'
         << "fullscreenOnLaunch=" << fullscreenOnLaunch << '\n'
+        << "bigPictureOnStart=" << bigPictureOnStart << '\n'
         << "scaling=" << scaling << '\n'
         << "aspect=" << aspect << '\n'
         << "showFps=" << showFps << '\n'

@@ -1,10 +1,12 @@
 #include "Draw.hpp"
 
+#include "../Arabic.hpp"
 #include "../Lang.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <vector>
 
 using theme::px;
 
@@ -69,6 +71,44 @@ void dashedRect(ImDrawList* dl, ImVec2 min, ImVec2 max, ImU32 color, float round
     }
 }
 
+std::vector<std::string> rtlLines(theme::Weight weight, float size, std::string_view value, float wrapWidth)
+{
+    // On coupe le texte dans l'ordre de lecture, mot par mot, en mesurant
+    // chaque ligne déjà mise en forme ; puis chaque ligne est mise en forme
+    // à part. (Couper le texte déjà retourné mettrait la fin de la phrase
+    // sur la première ligne.)
+    const std::string logical = lang::trLogical(value);
+    ImFont* f = theme::font(weight);
+    auto width = [&](const std::string& s) {
+        const std::string shown = arabic::visual(s);
+        return f->CalcTextSizeA(px(size), FLT_MAX, 0.0f, shown.data(), shown.data() + shown.size()).x;
+    };
+    std::vector<std::string> lines;
+    size_t start = 0;
+    while (start <= logical.size()) {
+        const size_t end = std::min(logical.find('\n', start), logical.size());
+        std::string line;
+        size_t at = start;
+        while (at < end) {
+            size_t space = logical.find(' ', at);
+            if (space == std::string::npos || space > end)
+                space = end;
+            const std::string word = logical.substr(at, space - at);
+            const std::string candidate = line.empty() ? word : line + " " + word;
+            if (!line.empty() && width(candidate) > wrapWidth) {
+                lines.push_back(arabic::visual(line));
+                line = word;
+            } else {
+                line = candidate;
+            }
+            at = space + 1;
+        }
+        lines.push_back(arabic::visual(line));
+        start = end + 1;
+    }
+    return lines;
+}
+
 // Tous les textes passent par ici : c'est là qu'ils sont traduits (Lang.hpp).
 ImVec2 measure(theme::Weight weight, float size, std::string_view text)
 {
@@ -93,6 +133,23 @@ void textEllipsis(ImDrawList* dl, ImVec2 pos, theme::Weight weight, float size, 
         text(dl, pos, weight, size, color, value);
         return;
     }
+    // De droite à gauche : le début de la phrase est à droite, c'est donc à
+    // gauche qu'on coupe ("…texte").
+    if (lang::rtl()) {
+        std::string cut(value);
+        while (!cut.empty()) {
+            size_t n = 1;
+            while (n < cut.size() && (static_cast<unsigned char>(cut[n]) & 0xC0) == 0x80)
+                ++n;
+            cut.erase(0, n);
+            const std::string candidate = "…" + cut;
+            if (measure(weight, size, candidate).x <= maxWidth) {
+                text(dl, pos, weight, size, color, candidate);
+                return;
+            }
+        }
+        return;
+    }
     // On retire des caractères jusqu'à ce que "texte…" tienne. On recule
     // octet par octet en évitant de couper un caractère UTF-8 en deux.
     std::string cut(value);
@@ -113,6 +170,15 @@ void textEllipsis(ImDrawList* dl, ImVec2 pos, theme::Weight weight, float size, 
 float textWrapped(ImDrawList* dl, ImVec2 pos, theme::Weight weight, float size, ImU32 color, std::string_view value,
                   float wrapWidth)
 {
+    if (lang::rtl()) {
+        const float lineH = px(size) * 1.0f;
+        float y = pos.y;
+        for (const std::string& line : rtlLines(weight, size, value, wrapWidth)) {
+            dl->AddText(theme::font(weight), px(size), ImVec2(pos.x, y), color, line.data(), line.data() + line.size());
+            y += lineH;
+        }
+        return y - pos.y;
+    }
     value = lang::tr(value);
     dl->AddText(theme::font(weight), px(size), pos, color, value.data(), value.data() + value.size(), wrapWidth);
     return wrappedHeight(weight, size, value, wrapWidth);
@@ -120,6 +186,8 @@ float textWrapped(ImDrawList* dl, ImVec2 pos, theme::Weight weight, float size, 
 
 float wrappedHeight(theme::Weight weight, float size, std::string_view value, float wrapWidth)
 {
+    if (lang::rtl())
+        return px(size) * static_cast<float>(rtlLines(weight, size, value, wrapWidth).size());
     value = lang::tr(value);
     return theme::font(weight)->CalcTextSizeA(px(size), FLT_MAX, wrapWidth, value.data(), value.data() + value.size()).y;
 }
@@ -287,6 +355,17 @@ void icon(ImDrawList* dl, Icon which, ImVec2 topLeft, float size, ImU32 color)
             dl->AddCircleFilled(g(4.5f, y), 1.3f * g.unit, color);
             dl->AddLine(g(8.5f, y), g(20.5f, y), color, t);
         }
+        break;
+    case Icon::Filter:
+        // Trois traits de plus en plus courts (un entonnoir).
+        dl->AddLine(g(4, 7), g(20, 7), color, t);
+        dl->AddLine(g(7, 12), g(17, 12), color, t);
+        dl->AddLine(g(10, 17), g(14, 17), color, t);
+        break;
+    case Icon::Tv:
+        dl->AddRect(g(2.5f, 4.5f), g(21.5f, 16.5f), color, 2 * g.unit, 0, t);
+        dl->AddLine(g(8, 20.5f), g(16, 20.5f), color, t);
+        dl->AddLine(g(12, 16.5f), g(12, 20.5f), color, t);
         break;
     case Icon::Carousel:
         dl->AddRect(g(7.5f, 4), g(16.5f, 20), color, 2 * g.unit, 0, t);

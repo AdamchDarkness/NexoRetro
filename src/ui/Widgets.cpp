@@ -419,6 +419,18 @@ void text(std::string_view value, float size, Weight weight, ImU32 color)
 
 void textWrapped(std::string_view value, float size, Weight weight, ImU32 color, float wrapWidth)
 {
+    if (lang::rtl()) {
+        // (Les lignes sont coupées avant d'être retournées : voir draw::rtlLines.)
+        ImGui::PushFont(theme::font(weight), px(size));
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        std::string lines;
+        for (const std::string& line : draw::rtlLines(weight, size, value, wrapWidth))
+            lines += (lines.empty() ? "" : "\n") + line;
+        ImGui::TextUnformatted(lines.data(), lines.data() + lines.size());
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        return;
+    }
     value = lang::tr(value);
     ImGui::PushFont(theme::font(weight), px(size));
     ImGui::PushStyleColor(ImGuiCol_Text, color);

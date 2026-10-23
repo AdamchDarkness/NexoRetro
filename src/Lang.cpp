@@ -1,5 +1,6 @@
 #include "Lang.hpp"
 
+#include "Arabic.hpp"
 #include "Utf8.hpp"
 
 #include <SDL3/SDL.h>
@@ -30,6 +31,7 @@ struct Pattern {
 };
 
 std::string g_code = "fr";
+bool g_rtl = false;             // arabe : de droite à gauche
 Table g_exact;                  // textes sans partie variable
 std::vector<Pattern> g_patterns; // textes avec "{}"
 Table g_cache;                  // résultats déjà calculés
@@ -139,6 +141,7 @@ std::vector<Language> available(const fs::path& dir)
         if (it->path().extension() != ".txt")
             continue;
         Language l{toUtf8(it->path().stem()), toUtf8(it->path().stem())};
+        // (Le nom est mis en forme ici : "العربية" s'affiche dans toutes les langues.)
         // Première ligne : "# name: English"
         std::ifstream in(it->path());
         std::string first;
@@ -147,6 +150,7 @@ std::vector<Language> available(const fs::path& dir)
             l.name.erase(0, l.name.find_first_not_of(' '));
             if (!l.name.empty() && l.name.back() == '\r')
                 l.name.pop_back();
+            l.name = arabic::visual(l.name);
         }
         list.push_back(std::move(l));
     }
@@ -156,6 +160,7 @@ std::vector<Language> available(const fs::path& dir)
 void setLanguage(const fs::path& dir, const std::string& code)
 {
     g_code = code;
+    g_rtl = code == "ar" || code == "fa" || code == "he";
     g_exact.clear();
     g_patterns.clear();
     g_cache.clear();
@@ -209,6 +214,45 @@ const std::string& current()
     return g_code;
 }
 
+bool rtl()
+{
+    return g_rtl;
+}
+
+std::string trLogical(std::string_view text)
+{
+    if (g_code == "fr" || text.empty())
+        return std::string(text);
+    return translate(text);
+}
+
+std::vector<unsigned int> characters()
+{
+    std::vector<unsigned int> list;
+    auto add = [&](const std::string& text) {
+        const std::string shown = g_rtl ? arabic::visual(text) : text;
+        for (size_t i = 0; i < shown.size();) {
+            const unsigned char c = static_cast<unsigned char>(shown[i]);
+            unsigned int cp = c;
+            int extra = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+            if (extra)
+                cp &= 0x3F >> extra;
+            ++i;
+            for (int k = 0; k < extra && i < shown.size(); ++k, ++i)
+                cp = (cp << 6) | (static_cast<unsigned char>(shown[i]) & 0x3F);
+            if (cp >= 0x80)
+                list.push_back(cp);
+        }
+    };
+    for (const auto& [from, to] : g_exact)
+        add(to);
+    for (const Pattern& p : g_patterns)
+        add(p.translation);
+    std::sort(list.begin(), list.end());
+    list.erase(std::unique(list.begin(), list.end()), list.end());
+    return list;
+}
+
 std::string_view tr(std::string_view text)
 {
     if (g_code == "fr" || text.empty())
@@ -216,6 +260,8 @@ std::string_view tr(std::string_view text)
     if (const auto it = g_cache.find(text); it != g_cache.end())
         return it->second;
     std::string result = translate(text);
+    if (g_rtl)
+        result = arabic::visual(result);
     // Pour compléter une traduction : EMU_LANG_MISSING=fichier.txt note les
     // textes affichés tels quels (non traduits) qui ont l'air français.
     if (result == text) {
@@ -230,6 +276,10 @@ std::string_view tr(std::string_view text)
             }
         }
     }
+    // Le texte déjà traduit, s'il repasse par ici (textEllipsis le fait),
+    // ressort tel quel.
+    if (result != text)
+        g_cache.emplace(result, result);
     return g_cache.emplace(std::string(text), std::move(result)).first->second;
 }
 

@@ -19,6 +19,28 @@ using theme::Weight;
 
 namespace ui {
 
+std::string logoFile()
+{
+    static const std::string file = toUtf8(fromUtf8(SDL_GetBasePath()) / "assets" / "logo" / "nexo-256.png");
+    return file;
+}
+
+float brand(const UiContext& ctx, ImDrawList* dl, ImVec2 topLeft, float logoSize, float textSize, ImU32 ink)
+{
+    const float size = px(logoSize);
+    ctx.covers.drawImage(dl, topLeft, ImVec2(topLeft.x + size, topLeft.y + size), logoFile(), 0.0f);
+    // (Le nom d'une marque ne se traduit pas : "Nexo" et "Retro" n'ont pas
+    // de ligne dans les fichiers de langue.)
+    const ImVec2 nexo = draw::measure(Weight::ExtraBold, textSize, "Nexo");
+    const float y = topLeft.y + (size - nexo.y) / 2;
+    float x = topLeft.x + size + px(10.0f);
+    draw::text(dl, ImVec2(x, y), Weight::ExtraBold, textSize, ink, "Nexo");
+    x += nexo.x + px(5.0f);
+    draw::text(dl, ImVec2(x, y), Weight::ExtraBold, textSize, theme::Accent, "Retro");
+    x += draw::measure(Weight::ExtraBold, textSize, "Retro").x;
+    return x - topLeft.x;
+}
+
 const char* statusLabel(net::GameStatus status)
 {
     switch (status) {

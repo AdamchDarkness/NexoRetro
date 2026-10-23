@@ -151,7 +151,7 @@ void ExternalInstaller::runZip(const std::string& id, const std::string& url, co
 {
     Result result;
     result.systemId = id;
-    net::HttpClient http("Emulateur (installation)");
+    net::HttpClient http("NexoRetro (installation)");
 
     setStep("Téléchargement…");
     const net::HttpResponse archive = http.get(url, &m_cancel, &m_progress);
@@ -234,7 +234,7 @@ void ExternalInstaller::run(const Source& source)
 {
     Result result;
     result.systemId = source.systemId;
-    net::HttpClient http("Emulateur (installation d'emulateurs)");
+    net::HttpClient http("NexoRetro (installation d'emulateurs)");
 
     // 1. La dernière version publiée, et le bon fichier pour Windows.
     setStep("Recherche de la dernière version…");

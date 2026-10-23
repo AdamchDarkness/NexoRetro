@@ -890,3 +890,21 @@ Dernière vérification : {} · tout est à jour => Last check: {} · everything
 Dernière vérification : {} · {n} mise(s) à jour disponible(s) => Last check: {} · {} update(s) available
 Vérifier maintenant => Check now
 {} · nouvelle version disponible => {} · new version available
+
+# --- Bibliothèque allégée, mode Big Picture ---
+Filtres => Filters
+Trier et filtrer => Sort and filter
+TRIER ET FILTRER => SORT AND FILTER
+Trier par => Sort by
+Année => Year
+Réinitialiser => Reset
+Fermer => Close
+Tout effacer => Clear all
+Mode Big Picture (Start à la manette) => Big Picture mode (Start on a controller)
+Démarrer en Big Picture => Start in Big Picture
+Plein écran, grandes jaquettes, tout à la manette (Start pour l'ouvrir) => Full screen, big covers, everything with a controller (Start to open it)
+Aucun favori pour l'instant => No favorites yet
+Aucun jeu dans cette catégorie => No games in this category
+Appuyez sur Y sur un jeu pour l'ajouter aux favoris. => Press Y on a game to add it to your favorites.
+Ajoutez des jeux depuis l'interface habituelle. => Add games from the regular interface.
+Quitter Big Picture => Exit Big Picture

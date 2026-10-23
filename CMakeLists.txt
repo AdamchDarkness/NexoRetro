@@ -1,5 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.24)
-project(Emulateur VERSION 0.2.0 LANGUAGES C CXX)
+project(NexoRetro VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -95,12 +95,14 @@ FetchContent_MakeAvailable(opus)
 add_executable(emulateur
     # Le moteur : chargement des cores, image, son, manettes.
     src/main.cpp
+    src/app.rc
     src/App.cpp
     src/Core.cpp
     src/CoreOptions.cpp
     src/Cheats.cpp
     src/SaveFiles.cpp
     src/Lang.cpp
+    src/Arabic.cpp
     src/Remaps.cpp
     src/Rewind.cpp
     src/ExternalProcess.cpp
@@ -151,7 +153,10 @@ add_executable(emulateur
     src/ui/FriendsScreen.cpp
     src/ui/SettingsScreen.cpp
     src/ui/PauseMenu.cpp
+    src/ui/BigPictureScreen.cpp
 )
+# Le fichier produit s'appelle NexoRetro.exe (la cible garde son nom court).
+set_target_properties(emulateur PROPERTIES OUTPUT_NAME NexoRetro)
 target_include_directories(emulateur PRIVATE third_party/libretro third_party/stb)
 target_link_libraries(emulateur PRIVATE SDL3::SDL3-static OpenGL::GL imgui miniupnpc::miniupnpc Vulkan::Headers opus)
 if(WIN32)

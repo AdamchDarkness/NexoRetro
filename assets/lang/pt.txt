@@ -884,3 +884,21 @@ Dernière vérification : {} · tout est à jour => Última verificação: {} ·
 Dernière vérification : {} · {n} mise(s) à jour disponible(s) => Última verificação: {} · {} atualização(ões) disponível(is)
 Vérifier maintenant => Verificar agora
 {} · nouvelle version disponible => {} · nova versão disponível
+
+# --- Bibliothèque allégée, mode Big Picture ---
+Filtres => Filtros
+Trier et filtrer => Ordenar e filtrar
+TRIER ET FILTRER => ORDENAR E FILTRAR
+Trier par => Ordenar por
+Année => Ano
+Réinitialiser => Redefinir
+Fermer => Fechar
+Tout effacer => Limpar tudo
+Mode Big Picture (Start à la manette) => Modo Big Picture (Start no controle)
+Démarrer en Big Picture => Iniciar no Big Picture
+Plein écran, grandes jaquettes, tout à la manette (Start pour l'ouvrir) => Tela cheia, capas grandes, tudo no controle (Start para abrir)
+Aucun favori pour l'instant => Nenhum favorito ainda
+Aucun jeu dans cette catégorie => Nenhum jogo nesta categoria
+Appuyez sur Y sur un jeu pour l'ajouter aux favoris. => Aperte Y em um jogo para adicioná-lo aos favoritos.
+Ajoutez des jeux depuis l'interface habituelle. => Adicione jogos pela interface normal.
+Quitter Big Picture => Sair do Big Picture

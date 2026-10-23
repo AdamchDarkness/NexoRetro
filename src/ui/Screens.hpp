@@ -30,6 +30,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,8 @@ struct Navigation {
     bool openSave = false;          // ... "Sauvegarde du jeu" (tests)
     bool openCheats = false;        // ... "Codes de triche", onglet en ligne (tests)
     std::string externalChoosing;   // console dont on choisit l'émulateur externe
+    bool bigPicture = false;        // mode Big Picture (plein écran, à la manette)
+    bool openFilters = false;       // bibliothèque : ouvrir la fenêtre des filtres (tests)
 
     void go(Screen s) { screen = s; }
     void openGame(const Game& g) { screen = Screen::Game; game = g.path; }
@@ -109,6 +112,8 @@ struct UiContext {
     std::function<void(const Game&, bool deleteFiles)> removeGame;
     // Charge un core un instant pour lire la liste de ses options.
     std::function<std::vector<CoreOption>(const std::filesystem::path& dll)> inspectCore;
+    // Entrer dans le mode Big Picture (plein écran) ou en sortir.
+    std::function<void(bool)> setBigPicture;
 
     std::filesystem::path dir(const char* name) const { return dataDir / name; }
 };
@@ -135,6 +140,10 @@ long long fileTime(const std::filesystem::path& file); // 0 si absent
 // --- Morceaux d'écran communs -------------------------------------------
 // Grand titre de page avec sous-titre.
 void pageTitle(const char* title, const std::string& subtitle);
+// Le logo de Nexo Retro (assets/logo/nexo-256.png) et son nom : « Nexo »
+// en gras, « Retro » en bleu. brand() renvoie la largeur dessinée.
+std::string logoFile();
+float brand(const UiContext& ctx, ImDrawList* dl, ImVec2 topLeft, float logoSize, float textSize, ImU32 ink);
 // Titre de section avec un lien à droite ; renvoie true si le lien est cliqué.
 bool sectionHeader(const char* title, const char* link, float width);
 
@@ -161,6 +170,11 @@ private:
     void drawGrid(UiContext& ctx, const std::vector<const Game*>& games);
     void drawList(UiContext& ctx, const std::vector<const Game*>& games);
     void drawCarousel(UiContext& ctx, const std::vector<const Game*>& games);
+    void drawViewSwitch(UiContext& ctx);
+    void drawFiltersPopup(const std::set<std::string>& genres, const std::set<std::string>& publishers,
+                          const std::set<int>& decades, ImVec2 topRight);
+    bool removablePill(const std::string& label);
+    void resetFilters();
 
     std::string m_filter = "all"; // "all", "fav", "recent" ou l'id d'une console
     char m_search[128] = "";
@@ -284,6 +298,17 @@ private:
     char m_discordId[32] = "";
 };
 
+// Big Picture : plein écran, sombre, grandes jaquettes, tout à la manette.
+class BigPictureScreen {
+public:
+    void draw(UiContext& ctx);
+
+private:
+    int m_category = 0;     // Tous, Favoris, Récents, puis les consoles
+    int m_index = 0;        // le jeu choisi
+    float m_scroll = 0.0f;  // la position affichée, qui glisse vers m_index
+};
+
 // L'enveloppe de l'application : barre du haut + écran courant.
 class Shell {
 public:
@@ -301,6 +326,7 @@ private:
     BiosScreen m_bios;
     FriendsScreen m_friends;
     SettingsScreen m_settings;
+    BigPictureScreen m_bigPicture;
 };
 
 } // namespace ui

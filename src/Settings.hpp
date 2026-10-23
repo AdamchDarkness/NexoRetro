@@ -10,6 +10,7 @@ struct Settings {
     // Affichage
     std::string language = "en"; // langue de l'interface (voir Lang.hpp) : anglais par défaut
     bool fullscreenOnLaunch = false;
+    bool bigPictureOnStart = false; // ouvrir directement le mode Big Picture (télé, manette)
     int scaling = 0;      // 0 = pixels nets, 1 = lissé
     int aspect = 0;       // 0 = d'origine, 1 = 4:3, 2 = 16:9
     bool showFps = false;

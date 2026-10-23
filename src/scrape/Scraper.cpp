@@ -246,7 +246,7 @@ std::vector<std::string> parseListing(const std::string& html)
 
 // Ce que le thread garde en mémoire entre deux jeux.
 struct Scraper::Cache {
-    net::HttpClient http{"Emulateur/0.1 (frontend libretro open source)"};
+    net::HttpClient http{"NexoRetro/0.2 (frontend libretro open source)"};
     std::map<std::string, std::unique_ptr<GameDatabase>> databases; // nullptr = indisponible
     std::map<std::string, std::unique_ptr<Listing>> listings;
     bool networkError = false; // le dernier téléchargement a échoué faute de réseau

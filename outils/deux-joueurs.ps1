@@ -18,7 +18,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-$exe = (Resolve-Path (Join-Path $PSScriptRoot "..\build\Release\emulateur.exe")).Path
+$exe = (Resolve-Path (Join-Path $PSScriptRoot "..\build\Release\NexoRetro.exe")).Path
 if (-not $Data) { $Data = Split-Path $exe }
 $Data = (Resolve-Path $Data).Path
 $data2 = Join-Path $Data "joueur2"
@@ -63,11 +63,11 @@ Start-Process $exe -ArgumentList (@("--data", "`"$data2`"") + $input2) -Redirect
 
 Write-Host ""
 Write-Host "Deux émulateurs sont lancés :"
-Write-Host "  - fenêtre « Emulateur · <ton pseudo> » : joueur 1, au clavier (clique dedans pour jouer)"
+Write-Host "  - fenêtre « Nexo Retro · <ton pseudo> » : joueur 1, au clavier (clique dedans pour jouer)"
 if ($SansManette) {
-    Write-Host "  - fenêtre « Emulateur · $Pseudo2 » : joueur 2, sans manette (il regarde)"
+    Write-Host "  - fenêtre « Nexo Retro · $Pseudo2 » : joueur 2, sans manette (il regarde)"
 } else {
-    Write-Host "  - fenêtre « Emulateur · $Pseudo2 » : joueur 2, à la manette n°1 (même en arrière-plan)"
+    Write-Host "  - fenêtre « Nexo Retro · $Pseudo2 » : joueur 2, à la manette n°1 (même en arrière-plan)"
 }
 Write-Host ""
 Write-Host "Dans la fenêtre du joueur 1 : Amis > Créer le salon > Copier le code."

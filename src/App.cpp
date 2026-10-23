@@ -16,6 +16,7 @@
 #include "ui/Theme.hpp"
 
 #include <imgui.h>
+#include <stb_image.h> // (l'implémentation est dans ui/Covers.cpp)
 
 #include <cstdio>
 #include <ctime>
@@ -153,6 +154,15 @@ App::App(AppOptions options)
                     // Celles vues pendant un vrai jeu peuvent être plus complètes.
                     std::vector<CoreOption> seen = loadOptionList(dir("core-options") / fromUtf8(toUtf8(dll.stem()) + ".txt"));
                     return seen.size() > options.size() ? seen : options;
+                },
+                [this](bool on) {
+                    // Big Picture : toute la place de l'écran. (Pas pendant les
+                    // tests automatiques : la fenêtre de test reste comme elle est.)
+                    if (m_nav.bigPicture == on)
+                        return;
+                    m_nav.bigPicture = on;
+                    if (m_options.maxFrames == 0)
+                        m_video.setFullscreen(on);
                 }}
 {
     m_covers.setScraper(&m_scraper);
@@ -246,10 +256,11 @@ bool App::init()
     const int height = std::min(static_cast<int>(900 * scale), static_cast<int>(usable.h * 0.9f));
 
     const bool directLaunch = !m_options.core.empty();
-    if (!m_video.open("Emulateur", width, height, directLaunch))
+    if (!m_video.open("Nexo Retro", width, height, directLaunch))
         return false;
+    setWindowIcon();
     // Le pseudo dans le titre : pratique pour distinguer deux fenêtres.
-    const std::string title = "Emulateur · " + m_settings.nickname;
+    const std::string title = "Nexo Retro · " + m_settings.nickname;
     m_video.setTitle(title.c_str());
     const fs::path fontDir = fromUtf8(SDL_GetBasePath()) / "assets" / "fonts";
     if (!m_video.createContext({}) || !m_ui.init(m_video.window(), fontDir) || !m_ui.initRenderer())
@@ -309,6 +320,8 @@ bool App::init()
         SDL_Log("TEST SYSTÈME : %s",
                 external::importSystemFiles(system->id, m_library.externalPath(*system), dir("bios"), files).c_str());
     }
+    if (m_options.bigPicture || m_settings.bigPictureOnStart)
+        m_context.setBigPicture(true);
     if (m_options.libraryView >= 0)
         m_settings.libraryView = m_options.libraryView;
     if (m_options.settingsTab >= 0)
@@ -317,6 +330,10 @@ bool App::init()
         m_context.play(m_library.games().front(), {});
     if (m_options.testResume && !m_library.games().empty())
         m_context.play(m_library.games().front(), ui::autoStateFile(m_context, m_library.games().front()));
+    if (m_options.startScreen == "filters") {
+        m_nav.screen = ui::Screen::Library;
+        m_nav.openFilters = true;
+    }
     if (m_options.startScreen == "covers") {
         m_nav.screen = ui::Screen::Game;
         m_nav.openCoverPicker = true;
@@ -1454,9 +1471,9 @@ bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::pa
         m_userData.save();
     }
 
-    const std::string title = m_gameTitle + " - Emulateur";
+    const std::string title = m_gameTitle + " - Nexo Retro";
     m_video.setTitle(title.c_str());
-    if (m_settings.fullscreenOnLaunch)
+    if (m_settings.fullscreenOnLaunch || m_nav.bigPicture)
         m_video.setFullscreen(true);
     m_mode = Mode::Playing;
     setMenuOpen(false);
@@ -1505,11 +1522,37 @@ void App::returnToInterface()
 {
     closeGame();
     restartGraphics();
-    if (m_settings.fullscreenOnLaunch)
+    // (En Big Picture, on revient sur l'écran Big Picture, toujours en plein écran.)
+    if (m_settings.fullscreenOnLaunch && !m_nav.bigPicture)
         m_video.setFullscreen(false);
-    const std::string title = "Emulateur · " + m_settings.nickname;
+    const std::string title = "Nexo Retro · " + m_settings.nickname;
     m_video.setTitle(title.c_str());
     m_bios.refresh();
+}
+
+// L'icône de la fenêtre et de la barre des tâches (l'exe a aussi la sienne,
+// dans src/app.rc : c'est celle que montre l'Explorateur).
+void App::setWindowIcon()
+{
+    const fs::path file = fromUtf8(SDL_GetBasePath()) / "assets" / "logo" / "nexo-256.png";
+    SDL_IOStream* io = SDL_IOFromFile(toUtf8(file).c_str(), "rb");
+    size_t size = 0;
+    void* bytes = io ? SDL_LoadFile_IO(io, &size, true) : nullptr;
+    int w = 0, h = 0, channels = 0;
+    unsigned char* pixels = bytes ? stbi_load_from_memory(static_cast<const stbi_uc*>(bytes), static_cast<int>(size), &w,
+                                                          &h, &channels, 4)
+                                  : nullptr;
+    SDL_free(bytes);
+    if (!pixels) {
+        SDL_Log("Icône introuvable : %s", toUtf8(file).c_str());
+        return;
+    }
+    // stb_image donne les octets R, G, B, A dans cet ordre : SDL_PIXELFORMAT_RGBA32.
+    if (SDL_Surface* surface = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, pixels, w * 4)) {
+        SDL_SetWindowIcon(m_video.window(), surface);
+        SDL_DestroySurface(surface);
+    }
+    stbi_image_free(pixels);
 }
 
 bool App::restartGraphics()

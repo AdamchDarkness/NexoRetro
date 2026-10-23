@@ -67,6 +67,7 @@ struct AppOptions {
     bool testPlay = false;
     bool testResume = false;
     bool openControls = false; // --controls (avec --menu) : ouvre l'écran "Commandes" (tests) // --test-resume : comme "Reprendre" (sauvegarde automatique) sur le premier jeu
+    bool bigPicture = false;    // --big-picture : démarre en mode Big Picture (tests)
     int libraryView = -1;       // --library-view 0|1|2 : grille, liste ou carrousel (tests, non enregistré)
     int settingsTab = -1;       // --settings-tab N : onglet des Paramètres à ouvrir (tests)      // --test-play : lance le premier jeu de la bibliothèque (tests)   // --net-link : partie en mode câble link (chacun son jeu)
 };
@@ -109,6 +110,7 @@ private:
     void closeGame();
     void returnToInterface();
     bool restartGraphics(); // contexte OpenGL "neutre" pour l'interface
+    void setWindowIcon();   // le logo de Nexo Retro dans la barre des tâches
     void applySettings();
     void rescan(); // relit la bibliothèque, puis cherche les nouveaux jeux en ligne
     void applyScrapedInfo();

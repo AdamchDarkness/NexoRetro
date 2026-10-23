@@ -86,7 +86,7 @@ void CoreUpdater::check(bool force)
         m_thread.join();
     m_fetching = true;
     m_thread = std::thread([this] {
-        net::HttpClient http("Emulateur (mise à jour des cores)");
+        net::HttpClient http("NexoRetro (mise à jour des cores)");
         const net::HttpResponse response = http.get(kIndexUrl);
         std::map<std::string, Entry> index;
         if (response.ok()) {

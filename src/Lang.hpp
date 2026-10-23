@@ -35,6 +35,16 @@ void newFrame(); // à chaque image (ménage du cache)
 
 // Le texte dans la langue choisie (lui-même s'il n'est pas traduit). Le
 // résultat reste valable jusqu'au prochain changement de langue.
+// Langue écrite de droite à gauche (arabe) : le résultat est déjà prêt à
+// dessiner (formes liées, ordre d'affichage : voir Arabic.hpp).
 std::string_view tr(std::string_view text);
+
+// La langue choisie s'écrit-elle de droite à gauche ?
+bool rtl();
+// La traduction dans l'ordre de lecture, AVANT la mise en forme de l'arabe :
+// pour couper un paragraphe en lignes (chaque ligne est mise en forme à part).
+std::string trLogical(std::string_view text);
+// Tous les caractères des traductions chargées (pour préparer les polices).
+std::vector<unsigned int> characters();
 
 } // namespace lang

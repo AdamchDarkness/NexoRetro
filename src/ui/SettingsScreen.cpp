@@ -745,6 +745,8 @@ void SettingsScreen::draw(UiContext& ctx)
         }
         changed |= settingRow("Plein écran au lancement", "Sinon le jeu s'ouvre dans la fenêtre (F11 pour basculer)", w,
                               px(46.0f), [&] { return toggle("##fs", &s.fullscreenOnLaunch); });
+        changed |= settingRow("Démarrer en Big Picture", "Plein écran, grandes jaquettes, tout à la manette (Start pour l'ouvrir)",
+                              w, px(46.0f), [&] { return toggle("##bigpicture", &s.bigPictureOnStart); });
         static const char* const scaling[] = {"Pixels nets", "Lissé"};
         changed |= settingRow("Agrandissement", "Des pixels nets ou une image adoucie", w,
                               segmentedWidth({"Pixels nets", "Lissé"}), [&] { return segmented("##scale", scaling, &s.scaling); });

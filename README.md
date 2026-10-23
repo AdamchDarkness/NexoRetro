@@ -1,11 +1,12 @@
-# Emulateur
+# Nexo Retro
 
-Un frontend d'émulation multi-consoles pour Windows, basé sur [libretro](https://www.libretro.com/),
+**Nexo Retro** est un frontend d'émulation multi-consoles pour Windows, basé sur [libretro](https://www.libretro.com/),
 avec une interface claire et minimaliste : bibliothèque de jeux avec jaquettes, fiche de chaque jeu,
 BIOS reconnus à leur contenu, émulateurs installés en un clic, **jeu en ligne sans serveur avec
 rollback** (comme GGPO), chat vocal et câble link, retour en arrière, avance rapide, commandes
 réglables console par console, cores mis à jour tout seuls et « Joue à... » sur Discord. Interface
-en anglais, français, espagnol, portugais (Brésil) et allemand.
+en anglais, français, espagnol, portugais (Brésil), allemand, chinois simplifié, japonais, coréen et
+arabe.
 
 **Consoles** : NES, Super Nintendo, Nintendo 64, Game Boy, Game Boy Color, Game Boy Advance, Nintendo
 DS, Nintendo 3DS, GameCube, Wii, Mega Drive / Genesis, Sega CD, Saturn, Dreamcast, PlayStation, PS2,
@@ -83,11 +84,11 @@ cmake --build --preset release
 ```
 
 Le premier `cmake --preset windows` télécharge et compile SDL3 et Dear ImGui. L'exécutable se trouve
-ensuite dans `build/Release/emulateur.exe`, avec son dossier `assets/`.
+ensuite dans `build/Release/NexoRetro.exe`, avec son dossier `assets/`.
 
 ## Utiliser
 
-Lancez `emulateur.exe` : la bibliothèque s'ouvre. Les dossiers `cores/`, `bios/`, `roms/` et
+Lancez `NexoRetro.exe` : la bibliothèque s'ouvre. Les dossiers `cores/`, `bios/`, `roms/` et
 `saves/` sont créés à côté de l'exécutable (ou dans le dossier donné avec `--data <dossier>`).
 Chaque jeu a son dossier de sauvegarde, `saves/<nom du jeu>/` : sa sauvegarde (`.srm`), ses
 sauvegardes d'état et ses captures. La fiche du jeu a un bouton « Ouvrir le dossier de sauvegarde ».
@@ -103,10 +104,27 @@ sauvegardes d'état et ses captures. La fiche du jeu a un bouton « Ouvrir le do
    l'ami le colle et rejoint. Même fichier de jeu et même version d'émulateur des deux côtés. Le
    salon affiche le ping et les pertes de chacun, et la qualité de la connexion avant de lancer.
 
-**Bibliothèque** : recherche instantanée (titre, console, genre, éditeur, année ; plusieurs mots,
-sans tenir compte des accents), filtres par genre, décennie, nombre de joueurs et éditeur, tri par
-année, et trois vues : grille de jaquettes, liste détaillée, carrousel (flèches, molette ou manette ;
-Entrée pour jouer).
+**Bibliothèque** : un seul rang de commandes (recherche, « Filtres », choix de la vue). La recherche
+est instantanée (titre, console, genre, éditeur, année ; plusieurs mots, sans tenir compte des
+accents). Les catégories (Tous, Favoris, Récents, consoles) tiennent sur une ligne qui défile à la
+molette. « Filtres » ouvre une fenêtre pour trier et filtrer par genre, décennie, nombre de joueurs
+et éditeur ; les filtres actifs s'affichent en pastilles qu'un clic retire. Trois vues : grille de
+jaquettes, liste détaillée, carrousel (flèches, molette ou manette ; Entrée pour jouer).
+
+**Mode Big Picture** (bouton télé en haut, ou Start à la manette ; Paramètres → Affichage →
+« Démarrer en Big Picture ») : plein écran sombre, grandes jaquettes, fond tiré de la capture du jeu,
+heure, et tout se pilote à la manette :
+
+| Bouton | Action |
+| --- | --- |
+| Croix, stick gauche (flèches) | Jeu précédent / suivant |
+| LB / RB (Page préc. / suiv.) | Catégorie (Tous, Favoris, Récents, chaque console) |
+| A (Entrée) | Jouer |
+| X (R) | Reprendre là où on s'était arrêté (sauvegarde automatique) |
+| Y (F) | Ajouter aux favoris / retirer |
+| B, Start (Échap) | Quitter Big Picture |
+
+Après une partie, on revient dans Big Picture, toujours en plein écran.
 
 **Chat vocal** (Paramètres → Jeu en ligne) : micro ouvert (n'envoie que quand on parle, sensibilité
 réglable) ou appuyer pour parler (touche au choix, T par défaut), volume des voix, test du micro.
@@ -150,6 +168,7 @@ attend 45 images puis quitte en enregistrant une capture.
 (Paramètres → Jaquettes et infos), `pads` (Paramètres → Manettes), `delete` (fenêtre « Supprimer »).
 `--test-remove hide|trash` retire le premier jeu de la bibliothèque (ou l'envoie à la Corbeille).
 `--library-view 0|1|2` ouvre la bibliothèque en grille, liste ou carrousel (sans l'enregistrer).
+`--screen filters` ouvre la fenêtre des filtres ; `--big-picture` démarre en mode Big Picture.
 Variables de test : `EMU_VOICE_TEST=tone` (un « la » à la place du micro), `EMU_VOICE_DUMP=fichier`
 (la voix reçue, PCM 48 kHz mono), `EMU_TEST_CORE_UPDATE=1` (vérifie les cores même en test),
 `EMU_DISCORD_TRACE=1` (tout ce que Discord répond). Pendant les tests automatiques, le vrai micro
@@ -192,7 +211,10 @@ n'est jamais ouvert.
 - [x] **Bibliothèque** : filtres (genre, année, joueurs, éditeur), recherche sans accents, vues grille / liste / carrousel
 - [x] **Mise à jour automatique des cores** (une fois par jour, jamais celui du jeu en cours)
 - [x] Interface en **espagnol, portugais (Brésil) et allemand**
+- [x] Interface en **chinois simplifié, japonais, coréen et arabe** (polices de Windows, arabe lié et de droite à gauche)
 - [x] **Discord Rich Presence** (sans SDK : tube nommé de Discord)
+- [x] Bibliothèque allégée : filtres dans une fenêtre, catégories sur une ligne, filtres actifs en pastilles
+- [x] **Mode Big Picture** : plein écran, grandes jaquettes, entièrement à la manette
 - [ ] Rendu Vulkan sans recopie (image partagée Vulkan/OpenGL), pour les très hautes résolutions
 - [ ] **Liste d'amis** (prochaine mise à jour) : sans serveur, via l'annuaire décentralisé de BitTorrent
   (DHT, comme le messager Tox). Chaque joueur a une clé, son « code ami » est sa clé publique ; il y
@@ -202,7 +224,18 @@ n'est jamais ouvert.
 ## Langues
 
 L'interface est en **anglais par défaut** ; Paramètres → Display → Language la passe en français,
-espagnol, portugais (Brésil) ou allemand.
+espagnol, portugais (Brésil), allemand, chinois simplifié, japonais, coréen ou arabe.
+
+Les écritures que la police de l'interface (Plus Jakarta Sans) n'a pas viennent des polices déjà
+installées avec Windows, sans rien ajouter au paquet : Microsoft YaHei (chinois), Yu Gothic
+(japonais), Malgun Gothic (coréen), Segoe UI (arabe). Leurs lettres sont « fusionnées » dans la
+police de l'interface ; celle de la langue choisie passe en premier (les idéogrammes chinois et
+japonais se dessinent un peu différemment), et les polices sont rechargées quand on change de langue.
+
+L'arabe demande deux étapes de plus, car ImGui écrit lettre par lettre, de gauche à droite
+(`src/Arabic.cpp`) : chaque lettre prend sa forme liée (isolée, initiale, médiane, finale, ligature
+lam-alif), puis le texte est remis dans l'ordre d'affichage, les nombres et les mots latins restant
+de gauche à droite. Les paragraphes sont coupés en lignes avant d'être retournés.
 Le code est écrit en français, et chaque autre langue est un fichier `assets/lang/<code>.txt` :
 
 ```
@@ -274,7 +307,7 @@ dans la texture OpenGL où l'interface est dessinée. `vulkan-1.dll` (installée
 graphique) est chargée à l'exécution : sans elle, seuls les cores Vulkan sont indisponibles.
 Paramètres → Affichage → *Rendu Vulkan* : pour les cores qui savent faire les deux, demande Vulkan
 plutôt qu'OpenGL. Le mini-core `vulkan_test_libretro.dll` (`tools/testcore/vulkantest.cpp`) teste
-toute la chaîne sans jeu : `emulateur.exe vulkan_test_libretro.dll` affiche un fond rouge qui
+toute la chaîne sans jeu : `NexoRetro.exe vulkan_test_libretro.dll` affiche un fond rouge qui
 pulse, vert quand on appuie sur A.
 
 ## Arcade et Neo Geo

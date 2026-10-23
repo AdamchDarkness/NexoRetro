@@ -8,6 +8,8 @@
 
 #include <imgui.h>
 
+#include <string>
+
 #include <filesystem>
 
 namespace theme {
@@ -54,7 +56,11 @@ ImU32 withAlpha(ImU32 color, int alpha);
 // génère chaque taille à la demande.
 enum class Weight { Medium, SemiBold, Bold, ExtraBold };
 
-bool loadFonts(const std::filesystem::path& fontDir);
+// language : les polices de secours (chinois, japonais, coréen, arabe) sont
+// rangées dans l'ordre qui convient à cette langue.
+bool loadFonts(const std::filesystem::path& fontDir, const std::string& language);
+// Les polices chargées conviennent-elles à cette langue ? (Sinon : les recharger.)
+bool fontsMatch(const std::string& language);
 ImFont* font(Weight weight);
 // Prépare d'avance toutes les lettres, dans toutes les tailles utilisées.
 // À appeler pendant la première image (après ImGui::NewFrame).

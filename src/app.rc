@@ -1,0 +1,5 @@
+// Ressources Windows de l'exécutable : son icône (celle que montrent
+// l'Explorateur, le bureau et la barre des tâches). Le compilateur de
+// ressources de Visual Studio l'intègre dans NexoRetro.exe.
+// (Le premier groupe d'icônes du fichier est celui que Windows affiche.)
+IDI_APP ICON "../assets/logo/nexo.ico"

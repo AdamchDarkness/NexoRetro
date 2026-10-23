@@ -12,7 +12,9 @@
 
 #include <imgui.h>
 
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace draw {
 
@@ -43,8 +45,12 @@ float wrappedHeight(theme::Weight weight, float size, std::string_view text, flo
 enum class Icon {
     None, Play, Plus, Search, Close, Check, ChevronLeft, ChevronRight, Folder, Upload,
     Chip, Image, Refresh, Users, Heart, HeartOutline, Gamepad, Copy, Pause, Pencil, Trash,
-    Mic, MicOff, Speaker, SpeakerOff, Grid, List, Carousel
+    Mic, MicOff, Speaker, SpeakerOff, Grid, List, Carousel, Filter, Tv
 };
 void icon(ImDrawList* dl, Icon icon, ImVec2 topLeft, float size, ImU32 color);
+
+// Langue de droite à gauche (arabe) : un paragraphe coupé en lignes de
+// wrapWidth au plus, chacune prête à dessiner.
+std::vector<std::string> rtlLines(theme::Weight weight, float size, std::string_view value, float wrapWidth);
 
 } // namespace draw

@@ -39,7 +39,8 @@ bool Ui::init(SDL_Window* window, const std::filesystem::path& fontDir)
 
     // Écrans haute résolution : Windows peut demander un agrandissement (125 %, 150 %...).
     theme::setScale(SDL_GetWindowDisplayScale(window));
-    theme::loadFonts(fontDir);
+    m_fontDir = fontDir;
+    theme::loadFonts(fontDir, lang::current());
     theme::applyImGuiStyle();
 
     return ImGui_ImplSDL3_InitForOpenGL(window, SDL_GL_GetCurrentContext());
@@ -68,6 +69,19 @@ void Ui::processEvent(const SDL_Event& event)
 void Ui::beginFrame()
 {
     lang::newFrame();
+    // Nouvelle langue d'une autre écriture (chinois, arabe...) : on recharge
+    // les polices, entre deux images. Le moteur de rendu d'ImGui est arrêté
+    // le temps de vider la texture des lettres, puis relancé.
+    if (!theme::fontsMatch(lang::current())) {
+        const bool renderer = m_rendererReady;
+        shutdownRenderer();
+        ImGui::GetIO().Fonts->Clear();
+        theme::loadFonts(m_fontDir, lang::current());
+        if (renderer)
+            initRenderer();
+        m_fontsReady = false;
+        SDL_Log("Polices rechargées pour la langue %s", lang::current().c_str());
+    }
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
