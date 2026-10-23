@@ -186,6 +186,56 @@ begin
   Result := WizardSilent and not OptionPresente('/NOLAUNCH');
 end;
 
+// --- Attendre que NexoRetro.exe soit fermé ---------------------------------
+// La mise à jour depuis l'application lance cet installateur juste AVANT
+// que NexoRetro.exe ait fini de se fermer (une fraction de seconde). Tant
+// qu'un programme tourne, Windows interdit d'ouvrir son .exe en écriture :
+// on essaie donc de l'ouvrir, et on recommence toutes les 200 ms tant que
+// c'est refusé (10 secondes au plus). Passé ce délai, le Gestionnaire de
+// redémarrage (CloseApplications=force) le fermera.
+const
+  W_GENERIC_WRITE = $40000000;
+  W_OPEN_EXISTING = 3;
+  W_FILE_ATTRIBUTE_NORMAL = $80;
+  W_INVALID_HANDLE_VALUE = -1;
+
+// (Préfixe W_ : Inno Setup définit déjà certains de ces noms.)
+// Fonctions de Windows (kernel32.dll), appelées directement depuis le Pascal.
+function CreateFile(lpFileName: String; dwDesiredAccess, dwShareMode, lpSecurityAttributes,
+  dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile: Integer): Integer;
+  external 'CreateFileW@kernel32.dll stdcall';
+function CloseHandle(hObject: Integer): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+// Vrai si le fichier peut être ouvert en écriture exclusive (programme fermé).
+function FichierLibre(const Chemin: String): Boolean;
+var
+  H: Integer;
+begin
+  H := CreateFile(Chemin, W_GENERIC_WRITE, 0, 0, W_OPEN_EXISTING, W_FILE_ATTRIBUTE_NORMAL, 0);
+  Result := H <> W_INVALID_HANDLE_VALUE;
+  if Result then
+    CloseHandle(H);
+end;
+
+// Appelée juste avant l'installation, quand le dossier {app} est connu.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Exe: String;
+  Essais: Integer;
+begin
+  Result := ''; // chaîne vide = on peut continuer
+  Exe := ExpandConstant('{app}\{#AppExe}');
+  if FileExists(Exe) then begin
+    Essais := 0;
+    while (not FichierLibre(Exe)) and (Essais < 50) do begin
+      Sleep(200);
+      Essais := Essais + 1;
+    end;
+    Log(Format('Attente de la fermeture de %s : %d ms', [Exe, Essais * 200]));
+  end;
+end;
+
 // Après la copie des fichiers : le marqueur installed.txt, qui fait ranger
 // les données dans %APPDATA%\NexoRetro (voir src/main.cpp).
 procedure CurStepChanged(CurStep: TSetupStep);
