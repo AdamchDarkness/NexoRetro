@@ -1,0 +1,29 @@
+# Compilation
+build/
+out/
+.vs/
+
+# Fichiers personnels : ne JAMAIS les publier.
+# Les BIOS et les jeux sont protégés par le droit d'auteur, chacun utilise
+# les dumps de ses propres consoles et cartouches.
+bios/
+roms/
+saves/
+*.iso
+*.bin
+*.cue
+*.chd
+*.sfc
+*.smc
+
+# Cache du scraping (bases, jaquettes et captures téléchargées)
+scraper/
+
+# Cores téléchargés depuis le buildbot libretro
+cores/
+*.dll
+
+# Paquets à envoyer (outils/creer-paquet.ps1) et fichiers de débogage
+dist/
+pcsx2_bad_shader_*.txt
+*.log

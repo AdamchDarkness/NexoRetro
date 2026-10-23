@@ -1,0 +1,3 @@
+System.dat : liste des BIOS connus (nom, taille, CRC32, MD5, SHA-1).
+Source : https://github.com/libretro/libretro-database (dat/System.dat).
+Ce fichier ne contient que des empreintes, aucun BIOS.

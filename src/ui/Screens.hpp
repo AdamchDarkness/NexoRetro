@@ -1,0 +1,283 @@
+#pragma once
+// Screens : les écrans de l'application et ce qu'ils partagent.
+//
+// Chaque écran est une classe avec une méthode draw(), appelée à chaque
+// image tant que l'écran est affiché. Son code se trouve dans le fichier du
+// même nom (HomeScreen.cpp, LibraryScreen.cpp...).
+//
+// Les écrans ne lancent rien eux-mêmes : ils passent par le UiContext, qui
+// donne accès aux données (bibliothèque, réglages...) et aux actions de
+// l'application (jouer, ouvrir un fichier, afficher un message...).
+
+#include "../Bios.hpp"
+#include "../Cheats.hpp"
+#include "../Core.hpp"
+#include "../ExternalInstaller.hpp"
+#include "../FileDialogs.hpp"
+#include "../Input.hpp"
+#include "../Library.hpp"
+#include "../Settings.hpp"
+#include "../UserData.hpp"
+#include "../net/Netplay.hpp"
+#include "../net/Session.hpp"
+#include "../scrape/Scraper.hpp"
+#include "Covers.hpp"
+
+#include <deque>
+#include <filesystem>
+#include <functional>
+#include <map>
+#include <string>
+#include <vector>
+
+namespace ui {
+
+enum class Screen { Home, Library, Game, AddGames, Bios, Friends, Settings };
+
+// Où l'on se trouve dans l'application.
+struct Navigation {
+    Screen screen = Screen::Home;
+    std::filesystem::path game;     // jeu affiché sur la fiche
+    std::string librarySystem;      // filtre de la bibliothèque à appliquer
+    bool focusSearch = false;       // placer le curseur dans la recherche
+    int settingsTab = -1;           // onglet des Paramètres à ouvrir (-1 = inchangé)
+    int settingsDevice = -2;        // Manettes : appareil à sélectionner (-1 = clavier, -2 = inchangé)
+    bool openCoverPicker = false;   // fiche du jeu : ouvrir "Changer la jaquette" (tests)
+    bool openDelete = false;        // fiche du jeu : ouvrir "Supprimer" (tests)
+    bool openSave = false;          // ... "Sauvegarde du jeu" (tests)
+    bool openCheats = false;        // ... "Codes de triche", onglet en ligne (tests)
+    std::string externalChoosing;   // console dont on choisit l'émulateur externe
+
+    void go(Screen s) { screen = s; }
+    void openGame(const Game& g) { screen = Screen::Game; game = g.path; }
+};
+
+// Une ligne du chat du salon.
+struct ChatLine {
+    std::string author; // vide = message du système ("Lou est connecté")
+    std::string text;
+    bool mine = false;
+};
+
+// Ce que l'interface doit savoir du salon, en plus de la Session.
+struct OnlineState {
+    std::vector<ChatLine> chat;
+    std::filesystem::path picking; // hôte : jeu choisi, empreinte en cours de calcul
+    std::filesystem::path match;   // le fichier de CE PC qui correspond au jeu du salon
+    float hashProgress = 0.0f;     // calcul d'empreinte en cours (0 à 1)
+    // Hôte : point de départ de la partie en ligne. 0 = nouvelle partie,
+    // 1 = sa sauvegarde du jeu (.srm), 2 = sauvegarde d'état auto, 3 = rapide (F2).
+    int startFrom = 0;
+    // Câble link : le jeu choisi par CE joueur (vide = celui du même nom que le jeu du salon).
+    std::filesystem::path linkChoice;
+};
+
+const char* statusLabel(net::GameStatus status);
+
+// Tout ce dont un écran a besoin. [C++] std::function stocke "quelque chose
+// qu'on peut appeler" (ici des lambdas fournies par App).
+struct UiContext {
+    Library& library;
+    UserData& userData;
+    Settings& settings;
+    BiosManager& bios;
+    Covers& covers;
+    Input& input;
+    Navigation& nav;
+    net::Session& session;
+    OnlineState& online;
+    scrape::Scraper& scraper;
+    ExternalInstaller& installer;
+    std::filesystem::path dataDir;
+
+    std::function<void(const Game&, const std::filesystem::path& state)> play;
+    std::function<void(std::string)> notify;
+    std::function<void(DialogPurpose)> openDialog;
+    std::function<void()> rescan;
+    std::function<void()> settingsChanged;
+    std::function<void(const Game&)> chooseSalonGame; // hôte : jeu du salon
+    std::function<void()> startNetplay;               // hôte : lancer la partie en ligne
+    std::function<void(bool)> setLinkMode;            // hôte : mode câble link oui/non
+    // Retirer un jeu de la bibliothèque ; deleteFiles : ses fichiers vont
+    // aussi à la Corbeille.
+    std::function<void(const Game&, bool deleteFiles)> removeGame;
+    // Charge un core un instant pour lire la liste de ses options.
+    std::function<std::vector<CoreOption>(const std::filesystem::path& dll)> inspectCore;
+
+    std::filesystem::path dir(const char* name) const { return dataDir / name; }
+};
+
+// Fichiers de sauvegarde d'état d'un jeu.
+std::filesystem::path quickStateFile(const UiContext& ctx, const Game& game);
+std::filesystem::path autoStateFile(const UiContext& ctx, const Game& game);
+// Le dossier des sauvegardes d'un jeu : saves/<nom>/.
+std::filesystem::path gameSaveDir(const UiContext& ctx, const Game& game);
+// La sauvegarde du jeu lui-même (la "pile" de la cartouche) : saves/<nom>/<nom>.srm.
+std::filesystem::path gameSaveFile(const UiContext& ctx, const Game& game);
+// Les codes de triche du jeu : cheats/<nom>.txt.
+std::filesystem::path cheatsFile(const UiContext& ctx, const Game& game);
+
+// Ouvre un dossier dans l'explorateur Windows.
+void openFolder(const std::filesystem::path& dir);
+
+// --- Mise en forme -----------------------------------------------------
+std::string formatAgo(long long timestamp);   // "Il y a 2 h", "Hier"...
+std::string formatDuration(long long seconds); // "41 h", "35 min"
+std::string formatSize(std::uintmax_t bytes);  // "1,2 Go"
+long long fileTime(const std::filesystem::path& file); // 0 si absent
+
+// --- Morceaux d'écran communs -------------------------------------------
+// Grand titre de page avec sous-titre.
+void pageTitle(const char* title, const std::string& subtitle);
+// Titre de section avec un lien à droite ; renvoie true si le lien est cliqué.
+bool sectionHeader(const char* title, const char* link, float width);
+
+struct TileResult {
+    bool clicked = false;
+    bool doubleClicked = false;
+};
+// Jaquette cliquable avec titre et sous-titre dessous.
+TileResult coverTile(const UiContext& ctx, const Game& game, float width, float height, const std::string& subtitle,
+                     float titleSize);
+
+// --- Les écrans ----------------------------------------------------------
+
+class HomeScreen {
+public:
+    void draw(UiContext& ctx);
+};
+
+class LibraryScreen {
+public:
+    void draw(UiContext& ctx);
+
+private:
+    std::string m_filter = "all"; // "all", "fav", "recent" ou l'id d'une console
+    char m_search[128] = "";
+    int m_sort = 0;
+};
+
+class GameScreen {
+public:
+    void draw(UiContext& ctx);
+
+private:
+    void drawCoverPicker(UiContext& ctx, const Game& game);
+    void drawRename(UiContext& ctx, const Game& game);
+    void drawDelete(UiContext& ctx, const Game& game);
+    void drawSaveManager(UiContext& ctx, const Game& game); // la sauvegarde du jeu (.srm)
+    void drawCheats(UiContext& ctx, const Game& game);      // les codes de triche
+    std::vector<Cheat>& cheatList(UiContext& ctx, const Game& game);
+    bool m_openSave = false;
+    bool m_openCheats = false;
+    int m_cheatTab = 0;
+    bool m_cheatSearchStarted = false;
+    char m_cheatName[96] = "";
+    char m_cheatCode[256] = "";
+    char m_cheatFilter[64] = "";
+    std::filesystem::path m_cheatsOf; // jeu dont m_cheats est la liste
+    std::vector<Cheat> m_cheats;
+    void drawOnlineCovers(UiContext& ctx, const Game& game, float width);
+    bool m_openDelete = false;
+    bool m_deleteFiles = false;      // aussi le fichier (vers la Corbeille)
+    bool m_removeRequested = false;
+    bool m_openPicker = false;
+    int m_pickerTab = 0;
+    char m_coverQuery[128] = "";  // recherche de jaquettes en ligne
+    bool m_coverSearchStarted = false;
+    bool m_openRename = false;
+    bool m_focusRename = false;
+    char m_renameBuffer[128] = "";
+};
+
+class AddGamesScreen {
+public:
+    void draw(UiContext& ctx);
+    // Fichiers ou dossiers déposés / choisis.
+    void import(UiContext& ctx, const std::vector<std::filesystem::path>& paths);
+
+private:
+    struct ImportItem {
+        enum class Status { Added, Ambiguous, Unsupported, Folder };
+        std::filesystem::path path;
+        std::string title;
+        Status status = Status::Added;
+        const System* system = nullptr;
+        std::vector<const System*> choices;
+        int choice = 0;
+    };
+    std::vector<ImportItem> m_items;
+};
+
+class BiosScreen {
+public:
+    void draw(UiContext& ctx);
+    void import(UiContext& ctx, const std::vector<std::filesystem::path>& paths);
+};
+
+class FriendsScreen {
+public:
+    void draw(UiContext& ctx);
+
+private:
+    void drawSalon(UiContext& ctx, float width, float height);
+    void drawStart(UiContext& ctx, float width);   // créer / rejoindre
+    void drawMembers(UiContext& ctx, float width);
+    void drawGame(UiContext& ctx, float width, float height);
+    void drawGamePicker(UiContext& ctx);
+    void drawChat(UiContext& ctx, float width, float height);
+    void drawHelp(float width);
+    char m_salonName[48] = "";
+    char m_hostPassword[48] = "";
+    char m_code[128] = "";         // code du salon à rejoindre
+    char m_joinPassword[48] = "";
+    char m_answer[128] = "";       // code de réponse (côté hôte)
+    char m_message[256] = "";      // message de chat en cours d'écriture
+    char m_pickerSearch[64] = "";
+    bool m_openPicker = false;
+    bool m_pickOwn = false;        // câble link : choisir SON jeu (et non celui du salon)
+    size_t m_chatSeen = 0;         // pour défiler vers le bas à chaque nouveau message
+};
+
+class SettingsScreen {
+public:
+    void draw(UiContext& ctx);
+
+private:
+    void drawControls(UiContext& ctx, float width); // réassignation des touches
+    void drawCoreOptions(UiContext& ctx, float width);
+    void drawExternal(UiContext& ctx, float width); // émulateurs externes
+    void drawCores(UiContext& ctx, float width);    // cores libretro : installer, mettre à jour
+    std::deque<std::string> m_coreQueue;            // cores à installer l'un après l'autre
+    std::map<std::string, std::string> m_argsEdit;  // arguments en cours de saisie
+    int m_tab = 0;
+    // Options des cores : le core choisi, ses options et nos valeurs.
+    int m_coreChoice = 0;
+    std::string m_inspectedCore;           // DLL dont les options sont affichées
+    int m_inspectWait = 0;                 // images à attendre avant de charger le core
+    std::vector<CoreOption> m_coreOptions;
+    std::map<std::string, std::string> m_optionValues; // contenu de core-options.txt
+    int m_device = -1; // -1 = clavier, sinon indice de la manette
+    char m_nickname[48] = "";
+};
+
+// L'enveloppe de l'application : barre du haut + écran courant.
+class Shell {
+public:
+    void draw(UiContext& ctx);
+    void onDialogResult(UiContext& ctx, const DialogResult& result);
+    void onDrop(UiContext& ctx, const std::vector<std::filesystem::path>& paths);
+
+private:
+    void drawTopBar(UiContext& ctx);
+
+    HomeScreen m_home;
+    LibraryScreen m_library;
+    GameScreen m_game;
+    AddGamesScreen m_addGames;
+    BiosScreen m_bios;
+    FriendsScreen m_friends;
+    SettingsScreen m_settings;
+};
+
+} // namespace ui

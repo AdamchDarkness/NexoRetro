@@ -1,0 +1,52 @@
+EMULATEUR — version {VERSION}
+========================================================================
+
+FRANÇAIS
+--------
+1. Décompressez ce dossier où vous voulez (Bureau, Documents...), mais PAS
+   dans "Program Files" : l'émulateur range ses fichiers à côté de lui.
+2. Lancez emulateur.exe. Windows peut afficher "Windows a protégé votre
+   ordinateur" (le programme n'est pas signé) : cliquez sur
+   "Informations complémentaires" puis "Exécuter quand même".
+3. L'interface est en anglais : Settings > Display > Language > Français.
+4. Ajoutez VOS jeux (bouton Add / Ajouter). Aucun jeu ni BIOS n'est fourni :
+   utilisez les copies de vos propres jeux et consoles.
+
+Jouer en ligne avec un ami
+  - Votre ami crée le salon (Amis > Créer le salon) et vous envoie le code.
+  - Vous : Amis > collez le code > Rejoindre.
+  - Il faut le MÊME fichier de jeu des deux côtés (même région, même
+    version) : le salon le vérifie. Les émulateurs (dossier "cores") de ce
+    paquet sont les mêmes que les siens.
+  - Si Windows demande d'autoriser l'émulateur sur le réseau : acceptez.
+  - Si ça ne connecte pas : suivez les indications du salon (code de
+    réponse), ou utilisez Radmin VPN / Hamachi / Tailscale.
+
+Émulateurs inclus (dossier cores) : {CORES}
+D'autres se téléchargent sur https://buildbot.libretro.com/nightly/windows/x86_64/latest/
+(à placer dans le dossier cores).
+
+
+ENGLISH
+-------
+1. Unzip this folder anywhere (Desktop, Documents...), but NOT in "Program
+   Files": the emulator keeps its files next to itself.
+2. Run emulateur.exe. Windows may say "Windows protected your PC" (the
+   program isn't signed): click "More info" then "Run anyway".
+3. Add YOUR games (Add button). No games or BIOS files are included: use
+   copies of your own games and consoles.
+
+Playing online with a friend
+  - Your friend creates the room (Friends > Create the room) and sends you
+    the code.
+  - You: Friends > paste the code > Join.
+  - Both sides need the SAME game file (same region, same version): the
+    room checks it. The emulators in this package ("cores" folder) are the
+    same as theirs.
+  - If Windows asks to allow the emulator on the network: accept.
+  - If it doesn't connect: follow the room's instructions (answer code), or
+    use Radmin VPN / Hamachi / Tailscale.
+
+Included emulators (cores folder): {CORES}
+More at https://buildbot.libretro.com/nightly/windows/x86_64/latest/
+(put them in the cores folder).
