@@ -12,6 +12,7 @@
 #include "../Bios.hpp"
 #include "../Cheats.hpp"
 #include "../Core.hpp"
+#include "../AppUpdater.hpp"
 #include "../CoreUpdater.hpp"
 #include "../Discord.hpp"
 #include "../ExternalInstaller.hpp"
@@ -114,6 +115,12 @@ struct UiContext {
     std::function<std::vector<CoreOption>(const std::filesystem::path& dll)> inspectCore;
     // Entrer dans le mode Big Picture (plein écran) ou en sortir.
     std::function<void(bool)> setBigPicture;
+    // Mise à jour de Nexo Retro (voir AppUpdater.hpp). Renseignés par App
+    // juste après la construction : d'où les valeurs par défaut.
+    AppUpdater* appUpdater = nullptr;
+    // "Installer maintenant" : télécharge si besoin, puis ferme l'appli et
+    // lance l'installateur (jamais pendant une partie en ligne).
+    std::function<void()> installUpdate;
 
     std::filesystem::path dir(const char* name) const { return dataDir / name; }
 };
@@ -283,6 +290,7 @@ private:
     void drawCoreOptions(UiContext& ctx, float width);
     void drawExternal(UiContext& ctx, float width); // émulateurs externes
     void drawCores(UiContext& ctx, float width);    // cores libretro : installer, mettre à jour
+    void drawUpdates(UiContext& ctx, float width);  // Nexo Retro lui-même : nouvelle version
     std::deque<std::string> m_coreQueue;            // cores à installer l'un après l'autre
     std::map<std::string, std::string> m_argsEdit;  // arguments en cours de saisie
     int m_tab = 0;

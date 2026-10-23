@@ -119,6 +119,7 @@ add_executable(emulateur
     src/VoiceChat.cpp
     src/Discord.cpp
     src/CoreUpdater.cpp
+    src/AppUpdater.cpp
     src/Input.cpp
     # Les données : jeux, BIOS, réglages, historique.
     src/Library.cpp
@@ -166,9 +167,14 @@ target_include_directories(emulateur PRIVATE third_party/libretro third_party/st
 target_link_libraries(emulateur PRIVATE SDL3::SDL3-static OpenGL::GL imgui miniupnpc::miniupnpc Vulkan::Headers opus)
 if(WIN32)
     # ws2_32 : les sockets de Windows ; iphlpapi : la liste des cartes réseau ;
-    # winhttp : les téléchargements HTTPS (scraping).
-    target_link_libraries(emulateur PRIVATE ws2_32 iphlpapi winhttp)
+    # winhttp : les téléchargements HTTPS (scraping) ; bcrypt : l'empreinte
+    # SHA-256 qui vérifie les mises à jour de l'application.
+    target_link_libraries(emulateur PRIVATE ws2_32 iphlpapi winhttp bcrypt)
 endif()
+# La version du programme (celle de project() en haut de ce fichier), connue
+# du code sous le nom NEXO_VERSION : la mise à jour automatique la compare à
+# celle des versions publiées sur GitHub.
+target_compile_definitions(emulateur PRIVATE NEXO_VERSION="${PROJECT_VERSION}")
 
 # --- Mini-core de test du jeu en ligne (voir tools/testcore/) ---------------
 add_library(netplay_test_libretro SHARED tools/testcore/testcore.cpp tools/testcore/linktest.cpp)

@@ -634,6 +634,197 @@ void SettingsScreen::drawCoreOptions(UiContext& ctx, float width)
                 13.0f, Weight::Medium, theme::Muted, width);
 }
 
+// --- Mises à jour de Nexo Retro --------------------------------------------------
+
+namespace {
+
+// Les notes de version sont écrites en Markdown sur GitHub ("## Nouveautés",
+// "- une ligne"). Sans moteur Markdown, on retire juste les signes les plus
+// visibles pour qu'elles restent agréables à lire. Les notes très longues
+// sont coupées : la page de téléchargement a le reste.
+std::string readableNotes(const std::string& markdown)
+{
+    std::istringstream lines(markdown);
+    std::string line, out;
+    while (std::getline(lines, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        size_t start = 0;
+        while (start < line.size() && line[start] == '#')
+            ++start;
+        if (start > 0) {
+            while (start < line.size() && line[start] == ' ')
+                ++start;
+            line = line.substr(start);
+        } else if (line.starts_with("- ") || line.starts_with("* ")) {
+            line = "• " + line.substr(2);
+        }
+        // "**gras**" : on garde le mot, sans les étoiles.
+        for (size_t at; (at = line.find("**")) != std::string::npos;)
+            line.erase(at, 2);
+        out += line + '\n';
+    }
+    while (!out.empty() && out.back() == '\n')
+        out.pop_back();
+    if (out.size() > 1500) {
+        size_t cut = out.rfind('\n', 1500);
+        out = out.substr(0, cut == std::string::npos ? 1500 : cut) + "\n…";
+    }
+    return out;
+}
+
+} // namespace
+
+void SettingsScreen::drawUpdates(UiContext& ctx, float width)
+{
+    if (!ctx.appUpdater)
+        return;
+    using State = AppUpdater::State;
+    AppUpdater& updater = *ctx.appUpdater;
+    Settings& s = ctx.settings;
+    const State state = updater.state();
+    const bool busy = state == State::Checking || state == State::Downloading;
+    const bool installed = updater.installedCopy();
+    const std::string& latest = updater.latestVersion();
+    const bool ignored = !latest.empty() && latest == s.appIgnoredVersion;
+    const bool online = ctx.session.inSalon();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // --- La version de ce programme, et le bouton "Rechercher".
+    {
+        const std::string version = std::string("Nexo Retro ") + AppUpdater::currentVersion();
+        const char* hint = installed ? "Copie installée : les mises à jour s'installent en un clic"
+                                     : "Copie portable : les mises à jour se téléchargent depuis la page officielle";
+        const char* action = "Rechercher une mise à jour";
+        const float valueW = draw::measure(Weight::SemiBold, 13.0f, version).x;
+        const float actionW = draw::measure(Weight::Bold, 13.0f, action).x + px(28.0f + 17.0f + 8.0f);
+        settingRow("Version actuelle", hint, width, valueW + px(12.0f) + actionW, [&] {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            draw::text(dl, ImVec2(p.x, p.y + px(11.0f)), Weight::SemiBold, 13.0f, theme::Body, version);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + valueW + px(12.0f), p.y));
+            if (button(action, {.style = ButtonStyle::Outline, .icon = draw::Icon::Refresh, .height = 38.0f,
+                                .fontSize = 13.0f, .disabled = busy || state == State::Ready}))
+                updater.check(false);
+            return false;
+        });
+    }
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + px(8.0f));
+
+    // --- L'état : vérification, à jour, nouvelle version, téléchargement...
+    switch (state) {
+    case State::Idle:
+        text(s.appLastCheck > 0 ? "Dernière vérification : " + formatAgo(s.appLastCheck)
+                                : std::string("Aucune vérification pour l'instant"),
+             14.0f, Weight::SemiBold, theme::Muted);
+        break;
+    case State::Checking:
+        pill("Recherche d'une mise à jour…", Tone::Info, 13.0f);
+        break;
+    case State::UpToDate:
+        pill("Nexo Retro est à jour", Tone::Success, 13.0f);
+        space(2.0f);
+        text("Dernière version publiée : " + latest, 13.0f, Weight::Medium, theme::Muted);
+        break;
+    case State::Error:
+        // Vérification impossible (pas d'Internet, dépôt privé...) : discret.
+        // Téléchargement ou empreinte refusés : en rouge.
+        pill(updater.error().c_str(), latest.empty() ? Tone::Neutral : Tone::Danger, 13.0f);
+        if (latest.empty())
+            break;
+        space(6.0f);
+        [[fallthrough]]; // (on affiche quand même la version trouvée et ses notes)
+    case State::Available:
+    case State::Downloading:
+    case State::Ready: {
+        text("Nouvelle version : " + latest, 20.0f, Weight::ExtraBold);
+        if (ignored) {
+            sameLine(12.0f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + px(4.0f));
+            pill("Version ignorée", Tone::Neutral);
+        }
+        if (!updater.notes().empty()) {
+            space(4.0f);
+            overline("NOTES DE VERSION");
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(4.0f));
+            textWrapped(readableNotes(updater.notes()), 13.0f, Weight::Medium, theme::Body, width);
+        }
+        space(8.0f);
+
+        if (state == State::Downloading) {
+            // Barre de progression.
+            const float p = updater.progress();
+            const float barW = std::min(width, px(420.0f));
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            draw::rect(dl, at, ImVec2(at.x + barW, at.y + px(10.0f)), theme::Track, px(5.0f));
+            if (p > 0.0f)
+                draw::rect(dl, at, ImVec2(at.x + barW * std::min(p, 1.0f), at.y + px(10.0f)), theme::Accent, px(5.0f));
+            ImGui::Dummy(ImVec2(barW, px(10.0f)));
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(4.0f));
+            text(p >= 0.0f ? "Téléchargement : " + std::to_string(static_cast<int>(p * 100)) + " %"
+                           : std::string("Téléchargement…"),
+                 13.0f, Weight::SemiBold, theme::Muted);
+            break;
+        }
+        if (state == State::Ready) {
+            pill("Prête à installer", Tone::Success, 13.0f);
+            space(2.0f);
+            textWrapped(s.appAutoInstall ? "Elle s'installera quand vous quitterez Nexo Retro, ou tout de suite avec le bouton."
+                                         : "Nexo Retro va se fermer, s'installer puis se relancer tout seul. Vos jeux et "
+                                           "sauvegardes ne bougent pas.",
+                        13.0f, Weight::Medium, theme::Muted, width);
+            space(4.0f);
+        }
+        // Les boutons.
+        if (installed) {
+            if (button("Installer maintenant", {.style = ButtonStyle::Accent, .icon = draw::Icon::Upload, .height = 42.0f,
+                                                .fontSize = 14.0f, .disabled = online}))
+                ctx.installUpdate();
+            sameLine();
+        }
+        if (button("Ouvrir la page de téléchargement",
+                   {.style = installed ? ButtonStyle::Outline : ButtonStyle::Accent, .height = 42.0f, .fontSize = 14.0f,
+                    .disabled = updater.pageUrl().empty()}))
+            SDL_OpenURL(updater.pageUrl().c_str());
+        sameLine();
+        if (!ignored) {
+            if (button("Ignorer cette version", {.style = ButtonStyle::Ghost, .height = 42.0f, .fontSize = 14.0f})) {
+                s.appIgnoredVersion = latest;
+                ctx.settingsChanged();
+            }
+        } else if (button("Ne plus ignorer", {.style = ButtonStyle::Ghost, .height = 42.0f, .fontSize = 14.0f})) {
+            s.appIgnoredVersion.clear();
+            ctx.settingsChanged();
+        }
+        if (installed && online) {
+            space(2.0f);
+            text("Indisponible pendant une partie en ligne", 13.0f, Weight::SemiBold, theme::Warning);
+        } else if (!installed) {
+            space(2.0f);
+            textWrapped("Copie portable : téléchargez la nouvelle version et remplacez les fichiers du programme. "
+                        "Vos données (jeux, sauvegardes, réglages) restent dans leur dossier.",
+                        13.0f, Weight::Medium, theme::Muted, width);
+        }
+        break;
+    }
+    }
+    space(12.0f);
+
+    // --- Les réglages.
+    bool changed = false;
+    changed |= settingRow("Rechercher automatiquement les mises à jour", "Au démarrage, au plus une fois par jour", width,
+                          px(46.0f), [&] { return toggle("##appAutoCheck", &s.appAutoCheck); });
+    changed |= settingRow("Installer automatiquement les mises à jour",
+                          installed ? "Téléchargées en arrière-plan, installées quand vous quittez Nexo Retro"
+                                    : "Seulement pour la copie installée (pas la version portable)",
+                          width, px(46.0f), [&] { return toggle("##appAutoInstall", &s.appAutoInstall, !installed); });
+    if (changed)
+        ctx.settingsChanged();
+    space(6.0f);
+    textWrapped("Les mises à jour viennent des versions officielles de Nexo Retro publiées sur GitHub. Chaque fichier "
+                "téléchargé est vérifié (empreinte SHA-256) avant d'être installé.",
+                13.0f, Weight::Medium, theme::Muted, width);
+}
+
 void SettingsScreen::draw(UiContext& ctx)
 {
     Settings& s = ctx.settings;
@@ -657,7 +848,7 @@ void SettingsScreen::draw(UiContext& ctx)
     space(4.0f);
     const char* tabs[] = {"Affichage",    "Son",          "Manettes",           "Sauvegardes",
                           "Dossiers",     "Jeu en ligne", "Jaquettes et infos", "Options des cores",
-                          "Émulateurs externes", "Émulateurs (cores)"};
+                          "Émulateurs externes", "Émulateurs (cores)", "Mises à jour"};
 
     // Les cores à installer l'un après l'autre (page "Émulateurs") : le
     // suivant part dès que le précédent est fini.
@@ -920,6 +1111,10 @@ void SettingsScreen::draw(UiContext& ctx)
     case 9:
         header("Émulateurs (cores)", "Le programme qui fait tourner chaque console : installé ou mis à jour en un clic.");
         drawCores(ctx, w);
+        break;
+    case 10:
+        header("Mises à jour", "Nexo Retro se met à jour depuis ses versions officielles.");
+        drawUpdates(ctx, w);
         break;
     default:
         break;

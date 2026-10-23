@@ -56,6 +56,7 @@ App::App(AppOptions options)
       m_scraper(dir("scraper")),
       m_installer(dir("emulators")),
       m_coreUpdater(dir("cores")),
+      m_appUpdater(fromUtf8(SDL_GetBasePath())), // (installed.txt est à côté de l'exe, pas des données)
       m_remaps(dir("remaps.txt")),
       // Le contexte des écrans : des références vers nos membres, et des
       // lambdas qui appellent nos méthodes. [C++] [this] capture l'objet App.
@@ -166,6 +167,8 @@ App::App(AppOptions options)
                 }}
 {
     m_covers.setScraper(&m_scraper);
+    m_context.appUpdater = &m_appUpdater;
+    m_context.installUpdate = [this] { installAppUpdate(); };
 }
 
 void App::rescan()
@@ -243,6 +246,16 @@ bool App::init()
     m_voice.setMicAllowed(!automatedTest);
     if (m_settings.coreAutoUpdate && (!automatedTest || SDL_getenv("EMU_TEST_CORE_UPDATE")))
         m_coreUpdater.check(SDL_getenv("EMU_TEST_CORE_UPDATE") != nullptr);
+    // Nexo Retro lui-même : une nouvelle version ? Même règle (au plus une
+    // fois par jour, jamais pendant les tests automatiques). Les tests la
+    // forcent avec EMU_TEST_APP_UPDATE, et EMU_UPDATE_URL désigne alors un
+    // faux serveur local (voir AppUpdater.cpp).
+    if (const char* test = SDL_getenv("EMU_TEST_APP_UPDATE"))
+        m_testAppUpdate = test;
+    if (!m_testAppUpdate.empty())
+        m_appUpdater.check(true);
+    else if (m_settings.appAutoCheck && !automatedTest && now() - m_settings.appLastCheck >= 24 * 3600)
+        m_appUpdater.check(true);
 
     // Taille de la fenêtre : celle des maquettes (1440 x 900), agrandie selon
     // l'échelle de l'écran, sans dépasser 90 % de la place disponible.
@@ -515,6 +528,13 @@ int App::run()
         else if (nowNs - nextFrame > 100'000'000) // plus de 100 ms de retard (fenêtre déplacée...)
             nextFrame = nowNs;
     }
+    // "Installer automatiquement les mises à jour" : une version téléchargée
+    // et vérifiée s'installe maintenant, à la fermeture (l'installateur part
+    // à la toute fin du programme, une fois tout enregistré : voir main.cpp).
+    if (m_settings.appAutoInstall && !m_appUpdater.installScheduled() &&
+        m_appUpdater.state() == AppUpdater::State::Ready &&
+        m_appUpdater.latestVersion() != m_settings.appIgnoredVersion)
+        m_appUpdater.scheduleInstall();
     return 0;
 }
 
@@ -957,10 +977,100 @@ void App::updateServices()
     for (const std::string& message : m_coreUpdater.takeMessages())
         m_ui.notify(message);
 
+    // Mise à jour de Nexo Retro.
+    updateAppUpdates();
+
     // Discord.
     m_discord.configure(m_settings.discordPresence,
                         m_settings.discordAppId.empty() ? std::string(kDiscordAppId) : m_settings.discordAppId);
     m_discord.set(discordActivity());
+}
+
+bool App::playingOnline() const
+{
+    return m_session.inSalon() || m_netplay.active() || m_link.active();
+}
+
+void App::updateAppUpdates()
+{
+    using State = AppUpdater::State;
+    AppUpdater& updater = m_appUpdater;
+    const State before = updater.state();
+    updater.update();
+    const State state = updater.state();
+    const bool ignored = !updater.latestVersion().empty() && updater.latestVersion() == m_settings.appIgnoredVersion;
+
+    if (updater.takeCheckFinished()) {
+        // La date de la vérification, même ratée : la suivante sera demain.
+        m_settings.appLastCheck = now();
+        m_settings.save(dir("settings.ini"));
+        // Trouvée toute seule au démarrage : on prévient (sauf version ignorée).
+        // Le bouton "Rechercher" affiche son résultat dans l'onglet lui-même.
+        if (state == State::Available && updater.automatic() && !ignored) {
+            m_ui.notify("Nexo Retro " + updater.latestVersion() + " est disponible");
+            // "Installer automatiquement" : on télécharge déjà, en arrière-plan.
+            if ((m_settings.appAutoInstall && updater.installedCopy()) || m_testAppUpdate == "download" ||
+                m_testAppUpdate == "install")
+                updater.download();
+            if (m_testAppUpdate == "install")
+                m_installWhenReady = true; // (tests : comme un clic sur "Installer maintenant")
+        }
+    }
+
+    // Fin d'un téléchargement.
+    if (before == State::Downloading && state != State::Downloading) {
+        if (state == State::Ready && m_installWhenReady) {
+            m_installWhenReady = false;
+            installAppUpdate();
+        } else if (state == State::Ready && m_settings.appAutoInstall && updater.installedCopy()) {
+            m_ui.notify("Nexo Retro " + updater.latestVersion() + " sera installé quand vous quitterez l'application");
+        } else if (state == State::Ready) {
+            m_ui.notify("Nexo Retro " + updater.latestVersion() + " est prêt à être installé");
+        } else if (state == State::Error) {
+            m_installWhenReady = false;
+            m_ui.notify(updater.error());
+        }
+    }
+}
+
+void App::installAppUpdate()
+{
+    // Installer veut dire fermer l'appli : jamais au milieu d'une partie en
+    // ligne (les amis seraient déconnectés sans prévenir).
+    if (playingOnline()) {
+        m_ui.notify("Indisponible pendant une partie en ligne");
+        return;
+    }
+    AppUpdater& updater = m_appUpdater;
+    // Copie portable ou de développement : pas d'installateur, la page web.
+    if (!updater.installedCopy()) {
+        if (!updater.pageUrl().empty())
+            SDL_OpenURL(updater.pageUrl().c_str());
+        return;
+    }
+    switch (updater.state()) {
+    case AppUpdater::State::Available:
+    case AppUpdater::State::Error:
+        // Pas encore téléchargée : on télécharge, et on installe dès que c'est prêt.
+        m_installWhenReady = true;
+        updater.download();
+        break;
+    case AppUpdater::State::Downloading:
+        m_installWhenReady = true;
+        break;
+    case AppUpdater::State::Ready:
+        if (updater.scheduleInstall()) {
+            // Fermeture normale (le jeu en cours, s'il y en a un, est
+            // sauvegardé) ; l'installateur part à la toute fin (main.cpp).
+            SDL_Log("Mise à jour de l'appli : fermeture pour installer la version %s", updater.latestVersion().c_str());
+            m_running = false;
+        } else {
+            m_ui.notify(updater.error());
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 DiscordPresence::Activity App::discordActivity() const

@@ -32,6 +32,11 @@ struct Settings {
     int libraryView = 0;
     // Émulateurs (cores) : chercher les mises à jour au démarrage (une fois par jour)
     bool coreAutoUpdate = true;
+    // Nexo Retro lui-même (voir AppUpdater.hpp).
+    bool appAutoCheck = true;        // chercher une nouvelle version au démarrage (une fois par jour)
+    bool appAutoInstall = false;     // la télécharger tout seul, l'installer en quittant l'appli
+    long long appLastCheck = 0;      // dernière vérification (secondes depuis 1970, 0 = jamais)
+    std::string appIgnoredVersion;   // "Ignorer cette version" : plus de rappel pour elle
     // Jeu en ligne
     std::string nickname = "Joueur";
     bool netStats = false;      // ping et pertes affichés pendant la partie

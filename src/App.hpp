@@ -2,6 +2,7 @@
 // App : le chef d'orchestre. Il possède tous les modules et passe d'un mode
 // à l'autre : interface (bibliothèque...) <-> jeu (avec son menu pause).
 
+#include "AppUpdater.hpp"
 #include "Audio.hpp"
 #include "Bios.hpp"
 #include "CoreUpdater.hpp"
@@ -90,6 +91,9 @@ private:
     void drawFps();
     void updateNetwork();
     void updateServices(); // chat vocal, mise à jour des cores, Discord
+    void updateAppUpdates(); // nouvelle version de Nexo Retro : annonce, téléchargement
+    void installAppUpdate(); // "Installer maintenant"
+    bool playingOnline() const; // une partie ou un salon en ligne est en cours
     DiscordPresence::Activity discordActivity() const;
     void updateSalonGame();
     void updateNetplay();
@@ -160,6 +164,9 @@ private:
     scrape::Scraper m_scraper;
     ExternalInstaller m_installer; // émulateurs externes installés en un clic
     CoreUpdater m_coreUpdater;     // cores gardés à jour tout seuls
+    AppUpdater m_appUpdater;       // Nexo Retro lui-même gardé à jour
+    bool m_installWhenReady = false; // "Installer maintenant" pendant le téléchargement
+    std::string m_testAppUpdate;   // EMU_TEST_APP_UPDATE (tests) : "", "1", "download" ou "install"
     VoiceChat m_voice;             // chat vocal du salon
     DiscordPresence m_discord;     // "Joue à ..." sur Discord
     std::string m_coreInUse;       // le .dll du jeu en cours (à ne pas mettre à jour pendant la partie)

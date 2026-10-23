@@ -34,6 +34,10 @@ void Settings::load(const std::filesystem::path& file)
         else if (key == "nickname" && !value.empty()) nickname = value;
         else if (key == "libraryView") libraryView = std::clamp(number, 0, 2);
         else if (key == "coreAutoUpdate") coreAutoUpdate = number != 0;
+        else if (key == "appAutoCheck") appAutoCheck = number != 0;
+        else if (key == "appAutoInstall") appAutoInstall = number != 0;
+        else if (key == "appLastCheck") appLastCheck = std::atoll(value.c_str()); // (trop grand pour atoi)
+        else if (key == "appIgnoredVersion") appIgnoredVersion = value;
         else if (key == "netStats") netStats = number != 0;
         else if (key == "voiceMode") voiceMode = std::clamp(number, 0, 2);
         else if (key == "voiceKey" && number > 0) voiceKey = number;
@@ -68,6 +72,10 @@ void Settings::save(const std::filesystem::path& file) const
         << "nickname=" << nickname << '\n'
         << "libraryView=" << libraryView << '\n'
         << "coreAutoUpdate=" << coreAutoUpdate << '\n'
+        << "appAutoCheck=" << appAutoCheck << '\n'
+        << "appAutoInstall=" << appAutoInstall << '\n'
+        << "appLastCheck=" << appLastCheck << '\n'
+        << "appIgnoredVersion=" << appIgnoredVersion << '\n'
         << "netStats=" << netStats << '\n'
         << "voiceMode=" << voiceMode << '\n'
         << "voiceKey=" << voiceKey << '\n'
