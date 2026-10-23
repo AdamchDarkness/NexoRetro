@@ -13,14 +13,19 @@ namespace {
 // En-tête de tous nos paquets : "EMUN", numéro de salon, type.
 constexpr uint8_t kMagic[4] = {'E', 'M', 'U', 'N'};
 constexpr size_t kHeader = 9;
-constexpr uint8_t kProtocolVersion = 3; // 3 : numéro de manche dans le netplay (resynchronisation)
+constexpr uint8_t kProtocolVersion = 4; // 4 : pertes dans la liste des membres, chat vocal
+
+// L'hôte écoute de préférence sur l'un de ces ports : un ami du même réseau
+// local le trouve alors sans connaître son adresse (diffusion).
+constexpr uint16_t kLanPortBase = 47800;
+constexpr int kLanPorts = 10;
 
 // Serveurs STUN publics et gratuits (on en essaie plusieurs).
 const char* const kStunHosts[] = {"stun.l.google.com", "stun1.l.google.com", "stun.cloudflare.com"};
 constexpr uint16_t kStunPorts[] = {19302, 19302, 3478};
 
 constexpr Uint64 kProbeIntervalMs = 250;   // "Bonjour" / "perforation" 4 fois par seconde
-constexpr Uint64 kPingIntervalMs = 1000;
+constexpr Uint64 kPingIntervalMs = 250; // 4 par seconde : assez pour mesurer les pertes
 constexpr Uint64 kRosterIntervalMs = 2000; // liste des membres (avec les pings) toutes les 2 s
 constexpr Uint64 kTimeoutMs = 10000;       // sans nouvelles pendant 10 s : déconnecté
 constexpr Uint64 kResendMs = 400;          // renvoi d'un message fiable sans accusé de réception
@@ -38,6 +43,32 @@ bool debugLog()
 }
 
 } // namespace
+
+LinkQuality qualityOf(int pingMs, int lossPct)
+{
+    if (pingMs < 0)
+        return LinkQuality::Unknown;
+    const int loss = std::max(0, lossPct);
+    if (pingMs < 60 && loss < 1)
+        return LinkQuality::Excellent;
+    if (pingMs < 120 && loss < 3)
+        return LinkQuality::Good;
+    if (pingMs < 200 && loss < 8)
+        return LinkQuality::Fair;
+    return LinkQuality::Poor;
+}
+
+const char* qualityLabel(LinkQuality quality)
+{
+    switch (quality) {
+    case LinkQuality::Excellent: return "Excellente";
+    case LinkQuality::Good: return "Bonne";
+    case LinkQuality::Fair: return "Moyenne";
+    case LinkQuality::Poor: return "Mauvaise";
+    case LinkQuality::Unknown: break;
+    }
+    return "Mesure…";
+}
 
 Session::Session() = default;
 
@@ -84,7 +115,7 @@ void Session::send(const Address& to, Packet type, const std::string& payload)
 {
     const std::string p = packet(type, payload);
     m_socket.sendTo(to, p.data(), p.size());
-    if (debugLog() && type != Packet::Frame) // 60 paquets d'images par seconde : trop bavard
+    if (debugLog() && type != Packet::Frame && type != Packet::Voice) // 50 à 60 par seconde : trop bavard
         SDL_Log("[net] -> %s type %d (%zu o)", to.toString().c_str(), static_cast<int>(type), p.size());
 }
 
@@ -101,8 +132,23 @@ void Session::sendReliable(Link& link, Kind kind, const std::string& data)
 void Session::serviceLink(Link& link, Uint64 now)
 {
     if (now - link.lastPing > kPingIntervalMs) {
-        send(link.addr, Packet::Ping, ByteWriter().u32(static_cast<uint32_t>(now)).data());
+        const uint32_t seq = link.pingSeq++;
+        link.pingSent[seq % Link::kPingHistory] = now;
+        link.pingAnswered[seq % Link::kPingHistory] = false;
+        send(link.addr, Packet::Ping, ByteWriter().u32(static_cast<uint32_t>(now)).u32(seq).data());
         link.lastPing = now;
+        // Pertes : parmi les pings partis il y a 1 à 6 s (le temps d'avoir
+        // leur réponse), combien n'en ont pas eu ?
+        int sent = 0, lost = 0;
+        for (int i = 0; i < Link::kPingHistory; ++i) {
+            const Uint64 at = link.pingSent[i];
+            if (at == 0 || now - at < 1000 || now - at > 6000)
+                continue;
+            ++sent;
+            lost += link.pingAnswered[i] ? 0 : 1;
+        }
+        if (sent >= 4)
+            link.lossPct = lost * 100 / sent;
     }
     // Limite de débit : au plus 48 messages (re)partent à chaque image, les
     // plus anciens d'abord. Sans ça, l'envoi d'une sauvegarde d'état de
@@ -160,6 +206,35 @@ int Session::pingOf(uint8_t memberId) const
     return it == m_peers.end() ? -1 : it->second.link.pingMs;
 }
 
+int Session::lossOf(uint8_t memberId) const
+{
+    if (!m_isHost)
+        return memberId == 0 ? m_hostLink.lossPct : -1;
+    const auto it = m_peers.find(memberId);
+    return it == m_peers.end() ? -1 : it->second.link.lossPct;
+}
+
+void Session::sendVoice(const std::string& data)
+{
+    if (!inSalon())
+        return;
+    // [qui parle][la voix] : l'hôte relaie tel quel aux autres membres.
+    const std::string p = ByteWriter().u8(m_selfId).raw(data).data();
+    if (!m_isHost) {
+        send(m_hostLink.addr, Packet::Voice, p);
+        return;
+    }
+    for (auto& [id, peer] : m_peers)
+        send(peer.link.addr, Packet::Voice, p);
+}
+
+std::vector<Session::FramePacket> Session::takeVoice()
+{
+    std::vector<FramePacket> voice;
+    voice.swap(m_voice);
+    return voice;
+}
+
 Session::Link* Session::linkFrom(const Address& from)
 {
     if (m_isHost) {
@@ -173,11 +248,14 @@ Session::Link* Session::linkFrom(const Address& from)
 
 // --- Ouverture du salon ---------------------------------------------------------
 
-bool Session::openSocket()
+bool Session::openSocket(bool lanPort)
 {
     leave();
     m_details.clear();
-    if (!m_socket.open(0)) {
+    bool opened = false;
+    for (int i = 0; lanPort && i < kLanPorts && !opened; ++i)
+        opened = m_socket.open(static_cast<uint16_t>(kLanPortBase + i));
+    if (!opened && !m_socket.open(0)) {
         event(Event::Type::Error, "Impossible d'ouvrir un port réseau");
         return false;
     }
@@ -198,6 +276,20 @@ void Session::startStun()
     m_stunDone = m_stunServers.empty();
     if (m_stunDone)
         detail("Pas d'accès aux serveurs STUN (pas d'Internet ?)");
+}
+
+Address Session::bestAddress() const
+{
+    // L'adresse vue d'Internet (STUN), sinon celle annoncée par la box
+    // (UPnP), sinon la première adresse locale (VPN, même box).
+    if (m_publicAddress)
+        return *m_publicAddress;
+    if (m_upnp && m_upnp->succeeded() && m_upnp->externalIp())
+        return {m_upnp->externalIp(), m_socket.localPort()};
+    for (uint32_t ip : localAddresses())
+        if (isPrivate(ip))
+            return {ip, m_socket.localPort()};
+    return {0x7F000001, m_socket.localPort()};
 }
 
 std::vector<Address> Session::ownCandidates() const
@@ -225,10 +317,10 @@ std::vector<Address> Session::ownCandidates() const
 
 bool Session::host(const std::string& salonName, const std::string& password)
 {
-    if (!openSocket())
+    if (!openSocket(true))
         return false;
     m_isHost = true;
-    m_sessionId = SDL_rand_bits();
+    m_sessionId = SDL_rand_bits() & 0xFFFFFF; // 24 bits : il doit tenir dans le code court
     if (m_sessionId == 0)
         m_sessionId = 1;
     // Le mot de passe ne circule jamais : seule son empreinte, mélangée au
@@ -251,17 +343,26 @@ bool Session::join(const std::string& code, const std::string& password)
         event(Event::Type::Error, "Ce code n'est pas valide : vérifiez qu'il est complet");
         return false;
     }
-    if (!openSocket())
+    if (!openSocket(false))
         return false;
     m_isHost = false;
     m_sessionId = invite->session;
     m_passwordHash = password.empty() ? 0 : Hasher64::of(password, m_sessionId);
     m_nonce = SDL_rand_bits() | 1;
     m_targets = invite->candidates;
+    // Si l'hôte est sur le même réseau local (même box, Radmin, Hamachi) ou
+    // sur ce PC, on le trouve par diffusion, sans connaître son adresse.
+    m_lanTargets.clear();
+    std::vector<uint32_t> lan = broadcastAddresses();
+    lan.push_back(0x7F000001); // 127.0.0.1 : ce PC
+    for (uint32_t ip : lan)
+        for (int i = 0; i < kLanPorts; ++i)
+            m_lanTargets.push_back({ip, static_cast<uint16_t>(kLanPortBase + i)});
     startStun(); // pour pouvoir proposer un code de réponse
     setState(State::Joining);
     for (const Address& a : m_targets)
         detail("Essai vers " + a.toString());
+    detail("Recherche sur le réseau local");
     return true;
 }
 
@@ -294,8 +395,11 @@ void Session::leave()
     m_stun.reset();
     m_state = State::Idle;
     m_inviteCode.clear();
+    m_fullInviteCode.clear();
     m_answerCode.clear();
     m_targets.clear();
+    m_lanTargets.clear();
+    m_voice.clear();
     m_peers.clear();
     m_hostLink = {};
     m_members.clear();
@@ -386,15 +490,20 @@ void Session::rebuildMembers()
 {
     if (m_isHost) {
         m_members.clear();
-        m_members.push_back({0, m_nickname, -1, m_localStatus, true, true});
+        m_members.push_back({0, m_nickname, -1, -1, m_localStatus, true, true});
         for (const auto& [id, peer] : m_peers)
-            m_members.push_back({id, peer.name, peer.link.pingMs, peer.status, false, false});
+            m_members.push_back({id, peer.name, peer.link.pingMs, peer.link.lossPct, peer.status, false, false});
     } else {
-        // Un membre connaît sa propre vérification avant que l'hôte ne la renvoie.
+        // Un membre connaît sa propre vérification avant que l'hôte ne la
+        // renvoie, et mesure lui-même sa liaison avec l'hôte.
         for (Member& m : m_members) {
             m.self = (m.id == m_selfId);
             if (m.self)
                 m.status = m_localStatus;
+            if (m.host) {
+                m.pingMs = m_hostLink.pingMs;
+                m.lossPct = m_hostLink.lossPct;
+            }
         }
     }
 }
@@ -406,6 +515,7 @@ void Session::broadcastRoster()
     w.u8(static_cast<uint8_t>(m_members.size()));
     for (const Member& m : m_members)
         w.u8(m.id).u16(m.pingMs < 0 ? 0xFFFF : static_cast<uint16_t>(std::min(m.pingMs, 0xFFFE)))
+            .u8(m.lossPct < 0 ? 0xFF : static_cast<uint8_t>(std::min(m.lossPct, 100)))
             .u8(static_cast<uint8_t>(m.status)).u8(m.host ? 1 : 0).str(m.name);
     for (auto& [id, peer] : m_peers)
         sendReliable(peer.link, Kind::Roster, w.data());
@@ -449,7 +559,8 @@ void Session::updatePreparation()
     if (m_state == State::Preparing) {
         const bool upnpDone = !m_upnp || m_upnp->finished();
         if ((m_stunDone && upnpDone) || now - m_stateSince > kPreparationMaxMs) {
-            m_inviteCode = encodeInvite({m_sessionId, ownCandidates()});
+            m_inviteCode = encodeShortInvite(m_sessionId, bestAddress());
+            m_fullInviteCode = encodeInvite({m_sessionId, ownCandidates()});
             setState(State::Hosting);
             rebuildMembers();
             event(Event::Type::Joined, "Salon « " + m_salonName + " » prêt : partagez le code");
@@ -459,7 +570,7 @@ void Session::updatePreparation()
     // code de réponse à renvoyer à l'hôte.
     if (m_state == State::Joining && m_answerCode.empty() && now - m_stateSince > kAnswerAfterMs &&
         (m_stunDone || now - m_stateSince > kPreparationMaxMs + kAnswerAfterMs)) {
-        m_answerCode = encodeInvite({m_sessionId, ownCandidates()});
+        m_answerCode = encodeShortInvite(m_sessionId, bestAddress());
         detail("Toujours rien : un code de réponse est disponible");
     }
 }
@@ -495,6 +606,12 @@ void Session::update()
     // connexion était jugée perdue dans l'image même où elle s'établissait.
     const Uint64 now = SDL_GetTicks();
 
+    // La liste des membres affichée suit les pings et pertes mesurés.
+    if (inSalon() && now - m_lastMembersRefresh > kPingIntervalMs) {
+        rebuildMembers();
+        m_lastMembersRefresh = now;
+    }
+
     // 2. Envoyer ce qui doit l'être selon l'état.
     switch (m_state) {
     case State::Joining:
@@ -502,6 +619,12 @@ void Session::update()
             const std::string hello = ByteWriter().u8(kProtocolVersion).u32(m_nonce).u64(m_passwordHash).str(m_nickname).data();
             for (const Address& a : m_targets)
                 send(a, Packet::Hello, hello);
+            // Le réseau local : deux fois par seconde suffisent.
+            if ((now / kProbeIntervalMs) % 2 == 0) {
+                const std::string p = packet(Packet::Hello, hello);
+                for (const Address& a : m_lanTargets)
+                    m_socket.sendTo(a, p.data(), p.size());
+            }
             m_lastProbe = now;
         }
         break;
@@ -582,9 +705,29 @@ void Session::handlePacket(const Address& from, const uint8_t* data, size_t size
             send(from, Packet::Pong, payload);
         break;
     case Packet::Pong:
-        if (link && payload.size() >= 4)
-            link->pingMs = static_cast<int>(static_cast<uint32_t>(SDL_GetTicks()) -
-                                            read32(reinterpret_cast<const uint8_t*>(payload.data())));
+        if (link && payload.size() >= 4) {
+            const auto* p = reinterpret_cast<const uint8_t*>(payload.data());
+            link->pingMs = static_cast<int>(static_cast<uint32_t>(SDL_GetTicks()) - read32(p));
+            if (payload.size() >= 8)
+                link->pingAnswered[read32(p + 4) % Link::kPingHistory] = true;
+        }
+        break;
+    case Packet::Voice:
+        if (link && !payload.empty()) {
+            // L'hôte retrouve qui parle d'après l'adresse (on ne croit pas le
+            // numéro écrit dans le paquet), et relaie aux autres membres.
+            uint8_t speaker = static_cast<uint8_t>(payload[0]);
+            if (m_isHost) {
+                for (const auto& [id, peer] : m_peers)
+                    if (&peer.link == link)
+                        speaker = id;
+                const std::string relay = ByteWriter().u8(speaker).raw(std::string_view(payload).substr(1)).data();
+                for (auto& [id, peer] : m_peers)
+                    if (id != speaker)
+                        send(peer.link.addr, Packet::Voice, relay);
+            }
+            m_voice.push_back({speaker, payload.substr(1)});
+        }
         break;
     case Packet::Reliable: {
         if (!link || payload.size() < 5)
@@ -723,6 +866,8 @@ void Session::handleMessage(const Address& from, Kind kind, const std::string& d
             m.id = r.u8();
             const uint16_t ping = r.u16();
             m.pingMs = ping == 0xFFFF ? -1 : ping;
+            const uint8_t loss = r.u8();
+            m.lossPct = loss == 0xFF ? -1 : loss;
             m.status = static_cast<GameStatus>(r.u8());
             m.host = r.u8() != 0;
             m.name = r.str();

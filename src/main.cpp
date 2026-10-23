@@ -49,6 +49,8 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
             out.exitScreenshot = fromUtf8(argv[++i]);
         else if (arg == "--settings-tab" && i + 1 < argc)
             out.settingsTab = std::atoi(argv[++i]);
+        else if (arg == "--library-view" && i + 1 < argc)
+            out.libraryView = std::atoi(argv[++i]);
         else if (arg == "--screen" && i + 1 < argc)
             out.startScreen = argv[++i];
         else if (arg == "--menu")

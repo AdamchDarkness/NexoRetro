@@ -4,6 +4,8 @@
 
 #include "Audio.hpp"
 #include "Bios.hpp"
+#include "CoreUpdater.hpp"
+#include "Discord.hpp"
 #include "FileDialogs.hpp"
 #include "FileHasher.hpp"
 #include "Remaps.hpp"
@@ -14,6 +16,7 @@
 #include "Ui.hpp"
 #include "UserData.hpp"
 #include "Video.hpp"
+#include "VoiceChat.hpp"
 #include "ui/Covers.hpp"
 #include "ui/PauseMenu.hpp"
 #include "net/LinkPlay.hpp"
@@ -64,6 +67,7 @@ struct AppOptions {
     bool testPlay = false;
     bool testResume = false;
     bool openControls = false; // --controls (avec --menu) : ouvre l'écran "Commandes" (tests) // --test-resume : comme "Reprendre" (sauvegarde automatique) sur le premier jeu
+    int libraryView = -1;       // --library-view 0|1|2 : grille, liste ou carrousel (tests, non enregistré)
     int settingsTab = -1;       // --settings-tab N : onglet des Paramètres à ouvrir (tests)      // --test-play : lance le premier jeu de la bibliothèque (tests)   // --net-link : partie en mode câble link (chacun son jeu)
 };
 
@@ -84,6 +88,8 @@ private:
     void drawUi();
     void drawFps();
     void updateNetwork();
+    void updateServices(); // chat vocal, mise à jour des cores, Discord
+    DiscordPresence::Activity discordActivity() const;
     void updateSalonGame();
     void updateNetplay();
     bool launchNetplayGame(const Game& game);
@@ -92,6 +98,7 @@ private:
     void drawLinkOverlay();
     void runNetplayFrames();
     void drawNetplayOverlay();
+    void drawOnlineStats(); // en ligne : qui parle, ping et pertes
     Input::PadState scriptedInput() const;
     void updateNetTest(const net::Session::Event* event);
 
@@ -150,6 +157,10 @@ private:
     FileHasher m_hasher;
     scrape::Scraper m_scraper;
     ExternalInstaller m_installer; // émulateurs externes installés en un clic
+    CoreUpdater m_coreUpdater;     // cores gardés à jour tout seuls
+    VoiceChat m_voice;             // chat vocal du salon
+    DiscordPresence m_discord;     // "Joue à ..." sur Discord
+    std::string m_coreInUse;       // le .dll du jeu en cours (à ne pas mettre à jour pendant la partie)
     Remaps m_remaps;               // commandes propres à chaque console (remaps.txt)
     std::string m_remapKey;        // console (et manette Wii) du jeu en cours
     bool m_controlsOpen = false;   // écran "Commandes" ouvert dans le menu pause

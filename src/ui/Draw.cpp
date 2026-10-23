@@ -257,6 +257,42 @@ void icon(ImDrawList* dl, Icon which, ImVec2 topLeft, float size, ImU32 color)
         dl->AddRect(g(8, 8), g(20, 20), color, 2 * g.unit, 0, t);
         polyline(dl, g, {{16, 6}, {16, 5}, {15, 4}, {5, 4}, {4, 5}, {4, 15}, {5, 16}, {6, 16}}, color, t);
         break;
+    case Icon::Mic:
+    case Icon::MicOff:
+        dl->AddRect(g(9, 3), g(15, 14), color, 3 * g.unit, 0, t);
+        arc(dl, g, 12, 10.5f, 6, 0, 180, color, t);
+        dl->AddLine(g(12, 16.5f), g(12, 20.5f), color, t);
+        dl->AddLine(g(8.5f, 20.5f), g(15.5f, 20.5f), color, t);
+        if (which == Icon::MicOff)
+            dl->AddLine(g(4, 4), g(20, 20), color, t * 1.1f);
+        break;
+    case Icon::Speaker:
+    case Icon::SpeakerOff:
+        polyline(dl, g, {{3, 9.5f}, {7, 9.5f}, {12, 5}, {12, 19}, {7, 14.5f}, {3, 14.5f}}, color, t, true);
+        if (which == Icon::Speaker) {
+            arc(dl, g, 12, 12, 4, -50, 50, color, t);
+            arc(dl, g, 12, 12, 8, -50, 50, color, t);
+        } else {
+            dl->AddLine(g(15.5f, 9), g(21, 15), color, t);
+            dl->AddLine(g(21, 9), g(15.5f, 15), color, t);
+        }
+        break;
+    case Icon::Grid:
+        for (float y : {4.0f, 13.5f})
+            for (float x : {4.0f, 13.5f})
+                dl->AddRect(g(x, y), g(x + 6.5f, y + 6.5f), color, 1.5f * g.unit, 0, t);
+        break;
+    case Icon::List:
+        for (float y : {6.0f, 12.0f, 18.0f}) {
+            dl->AddCircleFilled(g(4.5f, y), 1.3f * g.unit, color);
+            dl->AddLine(g(8.5f, y), g(20.5f, y), color, t);
+        }
+        break;
+    case Icon::Carousel:
+        dl->AddRect(g(7.5f, 4), g(16.5f, 20), color, 2 * g.unit, 0, t);
+        polyline(dl, g, {{4, 7}, {2.5f, 7}, {2.5f, 17}, {4, 17}}, color, t);
+        polyline(dl, g, {{20, 7}, {21.5f, 7}, {21.5f, 17}, {20, 17}}, color, t);
+        break;
     }
 }
 

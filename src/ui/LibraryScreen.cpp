@@ -1,10 +1,15 @@
-// Bibliothèque : filtres par catégorie, recherche, tri et grille de jaquettes.
+// Bibliothèque : catégories, recherche, filtres (genre, année, joueurs,
+// éditeur), tri, et trois façons de voir ses jeux : grille de jaquettes,
+// liste détaillée ou carrousel.
 
 #include "Screens.hpp"
 #include "Widgets.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <set>
+#include <sstream>
 
 using theme::px;
 using theme::Weight;
@@ -13,11 +18,34 @@ namespace ui {
 
 namespace {
 
-std::string lower(std::string s)
+// Pour comparer sans se soucier des majuscules ni des accents :
+// "Pokémon" et "pokemon" deviennent tous les deux "pokemon".
+std::string fold(std::string_view s)
 {
-    for (char& c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        // Les lettres accentuées les plus courantes (UTF-8 : 0xC3 puis un octet).
+        if (c == 0xC3 && i + 1 < s.size()) {
+            const unsigned char d = static_cast<unsigned char>(s[i + 1]) | 0x20; // majuscule -> minuscule
+            const char* base = nullptr;
+            if (d >= 0xA0 && d <= 0xA5) base = "a";
+            else if (d == 0xA7) base = "c";
+            else if (d >= 0xA8 && d <= 0xAB) base = "e";
+            else if (d >= 0xAC && d <= 0xAF) base = "i";
+            else if (d == 0xB1) base = "n";
+            else if (d >= 0xB2 && d <= 0xB6) base = "o";
+            else if (d >= 0xB9 && d <= 0xBC) base = "u";
+            if (base) {
+                out += base;
+                ++i;
+                continue;
+            }
+        }
+        out += static_cast<char>(std::tolower(c));
+    }
+    return out;
 }
 
 struct Category {
@@ -36,6 +64,40 @@ bool inCategory(const UiContext& ctx, const Game& g, const std::string& id)
     if (id == "recent")
         return r && r->lastPlayed > 0;
     return id == g.system->id;
+}
+
+// "Action, Platform" -> {"Action", "Platform"}
+std::vector<std::string> genresOf(const std::string& genre)
+{
+    std::vector<std::string> list;
+    std::istringstream in(genre);
+    std::string part;
+    while (std::getline(in, part, ',')) {
+        while (!part.empty() && part.front() == ' ')
+            part.erase(part.begin());
+        while (!part.empty() && part.back() == ' ')
+            part.pop_back();
+        if (!part.empty())
+            list.push_back(part);
+    }
+    return list;
+}
+
+// Une liste déroulante "Tous les genres / Action / ..." : renvoie true si
+// le choix a changé. current : la valeur choisie (vide = tout).
+bool filterCombo(const char* id, const char* allLabel, const std::set<std::string>& values, std::string& current, float width)
+{
+    std::vector<const char*> items = {allLabel};
+    int index = 0;
+    for (const std::string& v : values) {
+        if (v == current)
+            index = static_cast<int>(items.size());
+        items.push_back(v.c_str());
+    }
+    if (!combo(id, items, &index, width))
+        return false;
+    current = index == 0 ? std::string() : std::string(items[static_cast<size_t>(index)]);
+    return true;
 }
 
 } // namespace
@@ -59,22 +121,69 @@ void LibraryScreen::draw(UiContext& ctx)
         if (ctx.library.countFor(s) > 0)
             categories.push_back({s.id, s.name, theme::rgb(s.color)});
 
-    // Jeux visibles : catégorie + recherche, puis tri.
-    std::vector<const Game*> games;
-    const std::string needle = lower(m_search);
-    // La recherche porte aussi sur ce que le scraper a trouvé : "combat",
-    // "Capcom" ou "1995" retrouvent les jeux correspondants.
+    // Les valeurs possibles des filtres, d'après ce que le scraper a trouvé
+    // sur les jeux de la catégorie choisie.
+    std::set<std::string> genres, publishers;
+    std::set<int> decades;
+    for (const Game& g : all) {
+        if (!inCategory(ctx, g, m_filter))
+            continue;
+        if (const scrape::GameInfo* info = ctx.scraper.find(g.path)) {
+            for (const std::string& genre : genresOf(info->genre))
+                genres.insert(genre);
+            if (!info->publisher.empty())
+                publishers.insert(info->publisher);
+            if (info->year > 0)
+                decades.insert(info->year / 10 * 10);
+        }
+    }
+
+    // Recherche : chaque mot doit se trouver dans le titre, la console, le
+    // genre, le développeur, l'éditeur ou l'année ("mario snes", "capcom
+    // 1995"...). Sans tenir compte des majuscules ni des accents.
+    std::vector<std::string> words;
+    {
+        std::istringstream in(fold(m_search));
+        std::string word;
+        while (in >> word)
+            words.push_back(word);
+    }
     auto matches = [&](const Game& g) {
-        if (needle.empty() || lower(g.title).find(needle) != std::string::npos)
-            return true;
         const scrape::GameInfo* info = ctx.scraper.find(g.path);
-        return info && (lower(info->genre + " " + info->developer + " " + info->publisher).find(needle) != std::string::npos ||
-                        (info->year && std::to_string(info->year) == needle));
+        // Les filtres.
+        if (!m_genre.empty()) {
+            const std::vector<std::string> list = info ? genresOf(info->genre) : std::vector<std::string>{};
+            if (std::find(list.begin(), list.end(), m_genre) == list.end())
+                return false;
+        }
+        if (!m_publisher.empty() && (!info || info->publisher != m_publisher))
+            return false;
+        if (m_decade > 0 && (!info || info->year / 10 * 10 != m_decade))
+            return false;
+        if (m_players > 0 && (!info || info->players < m_players))
+            return false;
+        if (words.empty())
+            return true;
+        std::string haystack = g.title + " " + g.system->name + " " + g.system->shortName;
+        if (info)
+            haystack += " " + info->genre + " " + info->developer + " " + info->publisher + " " +
+                        (info->year ? std::to_string(info->year) : std::string());
+        haystack = fold(haystack);
+        for (const std::string& w : words)
+            if (haystack.find(w) == std::string::npos)
+                return false;
+        return true;
     };
+
+    std::vector<const Game*> games;
     for (const Game& g : all)
         if (inCategory(ctx, g, m_filter) && matches(g))
             games.push_back(&g);
     auto record = [&](const Game* g) { return ctx.userData.find(g->path); };
+    auto year = [&](const Game* g) {
+        const scrape::GameInfo* info = ctx.scraper.find(g->path);
+        return info && info->year > 0 ? info->year : 9999; // inconnue : à la fin
+    };
     if (m_sort == 1 || m_filter == "recent")
         std::stable_sort(games.begin(), games.end(), [&](const Game* a, const Game* b) {
             return (record(a) ? record(a)->lastPlayed : 0) > (record(b) ? record(b)->lastPlayed : 0);
@@ -83,20 +192,45 @@ void LibraryScreen::draw(UiContext& ctx)
         std::stable_sort(games.begin(), games.end(), [&](const Game* a, const Game* b) {
             return (record(a) ? record(a)->playSeconds : 0) > (record(b) ? record(b)->playSeconds : 0);
         });
+    else if (m_sort == 3)
+        std::stable_sort(games.begin(), games.end(), [&](const Game* a, const Game* b) { return year(a) < year(b); });
 
-    // --- En-tête : titre à gauche, recherche et tri à droite.
+    // --- En-tête : titre à gauche ; recherche, vues et tri à droite.
     const ImVec2 headerPos = ImGui::GetCursorPos();
     std::string subtitle = std::to_string(games.size()) + (games.size() > 1 ? " jeux" : " jeu");
     if (const int pending = ctx.scraper.pending(); pending > 0)
         subtitle += " · recherche des jaquettes en ligne (" + std::to_string(pending) + ")";
     pageTitle("Bibliothèque", subtitle);
     const ImVec2 afterTitle = ImGui::GetCursorPos();
-    static const char* const sorts[] = {"Titre (A → Z)", "Dernière partie", "Temps de jeu"};
+    static const char* const sorts[] = {"Titre (A → Z)", "Dernière partie", "Temps de jeu", "Année de sortie"};
     const float searchW = 300.0f;
     const float sortW = 190.0f;
-    ImGui::SetCursorPos(ImVec2(headerPos.x + width - px(searchW + 10.0f + sortW), headerPos.y + px(18.0f)));
+    const float viewsW = 3 * 40.0f + 2 * 4.0f;
+    ImGui::SetCursorPos(ImVec2(headerPos.x + width - px(searchW + 10.0f + viewsW + 10.0f + sortW), headerPos.y + px(18.0f)));
     searchField("##search", m_search, sizeof(m_search), "Rechercher un jeu", searchW, ctx.nav.focusSearch);
     ctx.nav.focusSearch = false;
+    sameLine();
+    {
+        // Les trois vues.
+        struct View {
+            draw::Icon icon;
+            const char* tip;
+        };
+        static const View views[] = {{draw::Icon::Grid, "Grille de jaquettes"},
+                                     {draw::Icon::List, "Liste détaillée"},
+                                     {draw::Icon::Carousel, "Carrousel"}};
+        for (int i = 0; i < 3; ++i) {
+            if (i > 0)
+                sameLine(4.0f);
+            ImGui::PushID(i);
+            const bool selected = ctx.settings.libraryView == i;
+            if (iconButton("##view", views[i].icon, selected ? ButtonStyle::Primary : ButtonStyle::Soft, 40.0f, views[i].tip)) {
+                ctx.settings.libraryView = i;
+                ctx.settingsChanged();
+            }
+            ImGui::PopID();
+        }
+    }
     sameLine();
     combo("##sort", sorts, &m_sort, sortW);
     ImGui::SetCursorPos(ImVec2(afterTitle.x, afterTitle.y + px(14.0f)));
@@ -122,10 +256,54 @@ void LibraryScreen::draw(UiContext& ctx)
             m_filter = c.id;
         ImGui::PopID();
     }
+    space(6.0f);
+
+    // --- Filtres : genre, décennie, joueurs, éditeur.
+    {
+        filterCombo("##genre", "Tous les genres", genres, m_genre, 200.0f);
+        sameLine(8.0f);
+        std::vector<std::string> decadeNames = {"Toutes les années"};
+        std::vector<int> decadeValues = {0};
+        for (int d : decades) {
+            decadeNames.push_back(d < 2000 ? "Années " + std::to_string(d % 100) : "Années " + std::to_string(d));
+            decadeValues.push_back(d);
+        }
+        std::vector<const char*> decadeItems;
+        int decadeIndex = 0;
+        for (size_t i = 0; i < decadeNames.size(); ++i) {
+            decadeItems.push_back(decadeNames[i].c_str());
+            if (decadeValues[i] == m_decade)
+                decadeIndex = static_cast<int>(i);
+        }
+        if (combo("##decade", decadeItems, &decadeIndex, 180.0f))
+            m_decade = decadeValues[static_cast<size_t>(decadeIndex)];
+        sameLine(8.0f);
+        static const char* const players[] = {"Tous les joueurs", "1 joueur et +", "2 joueurs et +", "3 joueurs et +",
+                                              "4 joueurs et +"};
+        combo("##players", players, &m_players, 180.0f);
+        sameLine(8.0f);
+        filterCombo("##publisher", "Tous les éditeurs", publishers, m_publisher, 220.0f);
+        if (!m_genre.empty() || m_decade > 0 || m_players > 0 || !m_publisher.empty() || m_search[0] != '\0') {
+            sameLine(14.0f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + px(10.0f));
+            if (link("Effacer les filtres", 13.0f)) {
+                m_genre.clear();
+                m_publisher.clear();
+                m_decade = 0;
+                m_players = 0;
+                m_search[0] = '\0';
+            }
+        }
+    }
     space(10.0f);
 
-    // --- Grille de jaquettes, dans une zone qui défile.
-    ImGui::BeginChild("##grid", ImVec2(0, 0), ImGuiChildFlags_None);
+    // --- Les jeux, dans une zone qui défile.
+    // (Le carrousel tient dans la page : pas de défilement, la molette sert
+    // à passer d'un jeu à l'autre.)
+    const bool carousel = ctx.settings.libraryView == 2 && !games.empty();
+    ImGui::BeginChild("##grid", ImVec2(0, 0), ImGuiChildFlags_None,
+                      carousel ? ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNav
+                               : ImGuiWindowFlags_None);
     if (games.empty()) {
         space(30.0f);
         if (all.empty()) {
@@ -136,9 +314,24 @@ void LibraryScreen::draw(UiContext& ctx)
                 ctx.nav.go(Screen::AddGames);
         } else {
             text("Aucun jeu ne correspond", 18.0f, Weight::ExtraBold);
-            text("Essayez une autre catégorie ou une autre recherche.", 14.0f, Weight::Medium, theme::Muted);
+            text("Essayez une autre catégorie, une autre recherche ou d'autres filtres.", 14.0f, Weight::Medium, theme::Muted);
         }
+    } else if (ctx.settings.libraryView == 1) {
+        drawList(ctx, games);
+    } else if (ctx.settings.libraryView == 2) {
+        drawCarousel(ctx, games);
+    } else {
+        drawGrid(ctx, games);
     }
+    if (!carousel)
+        space(20.0f);
+    ImGui::EndChild();
+}
+
+// --- Grille de jaquettes --------------------------------------------------------------
+
+void LibraryScreen::drawGrid(UiContext& ctx, const std::vector<const Game*>& games)
+{
     const float gridW = ImGui::GetContentRegionAvail().x - px(12.0f); // place pour la barre de défilement
     const float gapX = px(22.0f);
     const int columns = std::max(2, static_cast<int>((gridW + gapX) / (px(170.0f) + gapX)));
@@ -159,8 +352,185 @@ void LibraryScreen::draw(UiContext& ctx)
         else if (t.clicked)
             ctx.nav.openGame(g);
     }
-    space(20.0f);
-    ImGui::EndChild();
+}
+
+// --- Liste détaillée ------------------------------------------------------------------
+
+void LibraryScreen::drawList(UiContext& ctx, const std::vector<const Game*>& games)
+{
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rowW = ImGui::GetContentRegionAvail().x - px(12.0f);
+    const float rowH = px(72.0f);
+    // Les colonnes : jaquette + titre | console | année | genre | temps de jeu | dernière partie.
+    const float colSystem = rowW * 0.42f;
+    const float colYear = rowW * 0.58f;
+    const float colGenre = rowW * 0.65f;
+    const float colTime = rowW * 0.80f;
+    const float colLast = rowW * 0.90f;
+    {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        auto head = [&](float x, const char* label) {
+            draw::text(dl, ImVec2(p.x + x, p.y), Weight::Bold, 11.0f, theme::Muted, label);
+        };
+        head(px(78.0f), "JEU");
+        head(colSystem, "CONSOLE");
+        head(colYear, "ANNÉE");
+        head(colGenre, "GENRE");
+        head(colTime, "TEMPS");
+        head(colLast, "DERNIÈRE PARTIE");
+        ImGui::Dummy(ImVec2(rowW, px(20.0f)));
+    }
+
+    // [C++] ImGuiListClipper : seules les lignes visibles sont dessinées,
+    // même avec des milliers de jeux.
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(games.size()), rowH + ImGui::GetStyle().ItemSpacing.y);
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            const Game& g = *games[static_cast<size_t>(i)];
+            ImGui::PushID(&g);
+            const bool clicked = ImGui::InvisibleButton("##row", ImVec2(rowW, rowH));
+            const bool hovered = ImGui::IsItemHovered();
+            const bool doubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+            ImGui::PopID();
+            const ImVec2 p = ImGui::GetItemRectMin();
+            if (hovered) {
+                draw::rect(dl, p, ImVec2(p.x + rowW, p.y + rowH), theme::Surface, px(14.0f));
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            }
+            const float coverH = rowH - px(12.0f);
+            ctx.covers.draw(dl, ImVec2(p.x + px(10.0f), p.y + px(6.0f)), ImVec2(p.x + px(10.0f) + coverH * 0.75f, p.y + px(6.0f) + coverH),
+                            g, ctx.userData, px(6.0f), 0.0f);
+
+            const scrape::GameInfo* info = ctx.scraper.find(g.path);
+            const GameRecord* r = ctx.userData.find(g.path);
+            const float textX = p.x + px(78.0f);
+            const float midY = p.y + rowH / 2;
+            draw::textEllipsis(dl, ImVec2(textX, midY - px(18.0f)), Weight::Bold, 15.0f, theme::Ink, g.title,
+                               colSystem - px(90.0f));
+            std::string sub = info && !info->publisher.empty() ? info->publisher : g.region;
+            if (r && r->favorite)
+                sub = (sub.empty() ? "" : sub + " · ") + "Favori";
+            draw::textEllipsis(dl, ImVec2(textX, midY + px(2.0f)), Weight::Medium, 12.0f, theme::Muted, sub, colSystem - px(90.0f));
+
+            auto cell = [&](float x, float w, const std::string& value) {
+                draw::textEllipsis(dl, ImVec2(p.x + x, midY - px(9.0f)), Weight::SemiBold, 13.0f, theme::Body, value, w - px(12.0f));
+            };
+            // La pastille de couleur de la console, puis son nom.
+            dl->AddCircleFilled(ImVec2(p.x + colSystem + px(5.0f), midY), px(4.0f), theme::rgb(g.system->color));
+            cell(colSystem + px(16.0f), colYear - colSystem - px(16.0f), g.system->name);
+            cell(colYear, colGenre - colYear, info && info->year ? std::to_string(info->year) : "—");
+            cell(colGenre, colTime - colGenre, info && !info->genre.empty() ? info->genre : "—");
+            cell(colTime, colLast - colTime, r && r->playSeconds > 0 ? formatDuration(r->playSeconds) : "—");
+            cell(colLast, rowW - colLast, formatAgo(r ? r->lastPlayed : 0));
+
+            if (doubleClicked && ctx.library.hasCore(g))
+                ctx.play(g, {});
+            else if (clicked)
+                ctx.nav.openGame(g);
+        }
+    }
+}
+
+// --- Carrousel --------------------------------------------------------------------------
+
+void LibraryScreen::drawCarousel(UiContext& ctx, const std::vector<const Game*>& games)
+{
+    const int count = static_cast<int>(games.size());
+    m_carouselIndex = std::clamp(m_carouselIndex, 0, count - 1);
+
+    // Flèches gauche/droite (clavier ou manette) et molette : jeu précédent / suivant.
+    const bool typing = ImGui::GetIO().WantTextInput;
+    if (!typing && (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft)))
+        --m_carouselIndex;
+    if (!typing && (ImGui::IsKeyPressed(ImGuiKey_RightArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight)))
+        ++m_carouselIndex;
+    if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel != 0.0f)
+        m_carouselIndex -= ImGui::GetIO().MouseWheel > 0.0f ? 1 : -1;
+    m_carouselIndex = std::clamp(m_carouselIndex, 0, count - 1);
+    // La position affichée glisse doucement vers le jeu choisi.
+    m_carouselPos += (static_cast<float>(m_carouselIndex) - m_carouselPos) * std::min(1.0f, ImGui::GetIO().DeltaTime * 12.0f);
+    if (std::abs(m_carouselPos - m_carouselIndex) > count)
+        m_carouselPos = static_cast<float>(m_carouselIndex);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float areaW = ImGui::GetContentRegionAvail().x - px(12.0f);
+    const float areaH = std::max(px(200.0f), ImGui::GetContentRegionAvail().y - px(160.0f));
+    const float coverH = areaH * 0.86f;
+    const float coverW = coverH * 0.75f;
+    const float centerX = origin.x + areaW / 2;
+    const float spacing = coverW * 0.62f;
+
+    // Les jaquettes, des plus éloignées aux plus proches (la sélectionnée
+    // par-dessus) : plus petites et plus pâles à mesure qu'on s'éloigne.
+    const int first = std::max(0, static_cast<int>(m_carouselPos) - 5);
+    const int last = std::min(count - 1, static_cast<int>(m_carouselPos) + 6);
+    std::vector<int> order;
+    for (int i = first; i <= last; ++i)
+        order.push_back(i);
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+        return std::abs(a - m_carouselPos) > std::abs(b - m_carouselPos);
+    });
+    int clickedIndex = -1;
+    for (int i : order) {
+        const float offset = static_cast<float>(i) - m_carouselPos;
+        const float distance = std::min(std::abs(offset), 4.0f);
+        const float scale = 1.0f - 0.16f * distance;
+        const float w = coverW * scale;
+        const float h = coverH * scale;
+        const float x = centerX + offset * spacing - w / 2;
+        const float y = origin.y + (areaH - h) / 2;
+        if (x + w < origin.x || x > origin.x + areaW)
+            continue;
+        const ImVec2 min(x, y), max(x + w, y + h);
+        draw::shadow(dl, min, max, px(16.0f), px(18.0f), px(8.0f), distance < 0.5f ? 60 : 30);
+        ctx.covers.draw(dl, min, max, *games[static_cast<size_t>(i)], ctx.userData, px(16.0f), 20.0f * scale);
+        if (distance > 0.05f) // les jaquettes éloignées s'effacent dans le fond
+            draw::rect(dl, min, max, theme::withAlpha(theme::Ground, static_cast<int>(std::min(1.0f, distance / 3.0f) * 200)),
+                       px(16.0f));
+        if (ImGui::IsMouseHoveringRect(min, max) && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsWindowHovered())
+            clickedIndex = i;
+    }
+    ImGui::Dummy(ImVec2(areaW, areaH));
+    const Game& selected = *games[static_cast<size_t>(m_carouselIndex)];
+    if (clickedIndex >= 0) {
+        if (clickedIndex == m_carouselIndex)
+            ctx.nav.openGame(selected);
+        else
+            m_carouselIndex = clickedIndex;
+    }
+
+    // Sous le carrousel : le jeu choisi, ses informations et "Jouer".
+    space(8.0f);
+    const scrape::GameInfo* info = ctx.scraper.find(selected.path);
+    std::string details = selected.system->name;
+    if (info && info->year)
+        details += " · " + std::to_string(info->year);
+    if (info && !info->genre.empty())
+        details += " · " + info->genre;
+    if (info && !info->publisher.empty())
+        details += " · " + info->publisher;
+    const ImVec2 titleSize = draw::measure(Weight::ExtraBold, 26.0f, selected.title);
+    const ImVec2 detailSize = draw::measure(Weight::Medium, 14.0f, details);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    draw::text(dl, ImVec2(origin.x + (areaW - std::min(titleSize.x, areaW)) / 2, p.y), Weight::ExtraBold, 26.0f, theme::Ink,
+               selected.title);
+    draw::text(dl, ImVec2(origin.x + (areaW - std::min(detailSize.x, areaW)) / 2, p.y + px(36.0f)), Weight::Medium, 14.0f,
+               theme::Muted, details);
+    ImGui::Dummy(ImVec2(areaW, px(64.0f)));
+    const float playW = 150.0f, infoW = 150.0f;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (areaW - px(playW + 10.0f + infoW)) / 2);
+    const bool hasCore = selected.system->external() || ctx.library.hasCore(selected);
+    if (button("Jouer##carousel", {.style = ButtonStyle::Primary, .icon = draw::Icon::Play, .height = 44.0f, .width = playW,
+                                   .disabled = !hasCore, .tooltip = hasCore ? nullptr : "Le core de cette console n'est pas installé"}))
+        ctx.play(selected, {});
+    sameLine();
+    if (button("Fiche du jeu##carousel", {.style = ButtonStyle::Outline, .height = 44.0f, .width = infoW}))
+        ctx.nav.openGame(selected);
+    // Entrée (ou A à la manette) : jouer au jeu choisi.
+    if (!typing && hasCore && (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)))
+        ctx.play(selected, {});
 }
 
 } // namespace ui

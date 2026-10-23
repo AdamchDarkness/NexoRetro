@@ -62,10 +62,16 @@ struct Member {
     uint8_t id = 0; // 0 = l'hôte
     std::string name;
     int pingMs = -1;
+    int lossPct = -1; // paquets perdus sur les dernières secondes, en % (-1 = pas encore mesuré)
     GameStatus status = GameStatus::Unknown;
     bool host = false;
     bool self = false;
 };
+
+// La qualité d'une connexion, d'après le ping et les pertes.
+enum class LinkQuality { Unknown, Excellent, Good, Fair, Poor };
+LinkQuality qualityOf(int pingMs, int lossPct);
+const char* qualityLabel(LinkQuality quality); // "Excellente", "Bonne"...
 
 class Session {
 public:
@@ -117,13 +123,21 @@ public:
     std::vector<FramePacket> takeFrames();
     uint8_t selfId() const { return m_selfId; }
     int pingOf(uint8_t memberId) const;
+    int lossOf(uint8_t memberId) const; // en %, -1 si inconnu
+
+    // --- Pour le chat vocal ------------------------------------------------
+    // Un morceau de voix (20 ms compressés), sans garantie d'arrivée : à
+    // tous les autres (l'hôte relaie ceux des membres).
+    void sendVoice(const std::string& data);
+    std::vector<FramePacket> takeVoice(); // from = numéro de celui qui parle
 
     // --- Pour l'interface ----------------------------------------------
     State state() const { return m_state; }
     bool inSalon() const { return m_state == State::Hosting || m_state == State::InSalon; }
     bool isHost() const { return m_isHost; }
     const std::string& salonName() const { return m_salonName; }
-    const std::string& inviteCode() const { return m_inviteCode; } // hôte, une fois prêt
+    const std::string& inviteCode() const { return m_inviteCode; } // hôte, une fois prêt (code court)
+    const std::string& fullInviteCode() const { return m_fullInviteCode; } // toutes les adresses
     const std::string& answerCode() const { return m_answerCode; } // ami, après quelques secondes
     const std::vector<Member>& members() const { return m_members; }
     const std::optional<SalonGame>& game() const { return m_game; }
@@ -133,7 +147,7 @@ public:
 
 private:
     // Types de paquets. Les messages "fiables" voyagent dans Reliable.
-    enum class Packet : uint8_t { Hello = 1, Welcome, Reject, Punch, Ping, Pong, Reliable, Ack, Bye, Frame };
+    enum class Packet : uint8_t { Hello = 1, Welcome, Reject, Punch, Ping, Pong, Reliable, Ack, Bye, Frame, Voice };
     enum class Kind : uint8_t { Chat = 1, Roster, Game, Status, Kick, App };
 
     // Une liaison avec un autre émulateur (fiabilité + ping).
@@ -149,6 +163,12 @@ private:
         Uint64 lastReceived = 0;
         Uint64 lastPing = 0;
         int pingMs = -1;
+        // Pertes : les derniers pings envoyés, et ceux qui ont eu leur réponse.
+        static constexpr int kPingHistory = 32;
+        uint32_t pingSeq = 0;
+        Uint64 pingSent[kPingHistory] = {};
+        bool pingAnswered[kPingHistory] = {};
+        int lossPct = -1;
     };
     struct Peer {
         uint8_t id = 0;
@@ -158,11 +178,12 @@ private:
         Link link;
     };
 
-    bool openSocket();
+    bool openSocket(bool lanPort); // lanPort : l'un des ports connus du réseau local (hôte)
     void setState(State s);
     void startStun();
     void updatePreparation();
     std::vector<Address> ownCandidates() const;
+    Address bestAddress() const; // celle du code court
 
     std::string packet(Packet type, const std::string& payload = {}) const;
     void send(const Address& to, Packet type, const std::string& payload = {});
@@ -204,13 +225,16 @@ private:
     bool m_upnpReported = false;
 
     std::string m_inviteCode;
+    std::string m_fullInviteCode;
     std::string m_answerCode;
     std::vector<Address> m_targets; // adresses à "percer"
+    std::vector<Address> m_lanTargets; // ami : diffusion sur les réseaux locaux
     Uint64 m_lastProbe = 0;
 
     // Hôte : les amis connectés.
     std::map<uint8_t, Peer> m_peers;
     Uint64 m_lastRoster = 0;
+    Uint64 m_lastMembersRefresh = 0;
     // Membre : la liaison avec l'hôte.
     Link m_hostLink;
     uint32_t m_nonce = 0;
@@ -224,6 +248,7 @@ private:
 
     std::vector<Event> m_events;
     std::vector<FramePacket> m_frames;
+    std::vector<FramePacket> m_voice;
     std::vector<std::string> m_details;
 };
 

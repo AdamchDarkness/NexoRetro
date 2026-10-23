@@ -42,7 +42,8 @@ float wrappedHeight(theme::Weight weight, float size, std::string_view text, flo
 // Dessinées en traits, sur une grille de 24 x 24 (comme les SVG des maquettes).
 enum class Icon {
     None, Play, Plus, Search, Close, Check, ChevronLeft, ChevronRight, Folder, Upload,
-    Chip, Image, Refresh, Users, Heart, HeartOutline, Gamepad, Copy, Pause, Pencil, Trash
+    Chip, Image, Refresh, Users, Heart, HeartOutline, Gamepad, Copy, Pause, Pencil, Trash,
+    Mic, MicOff, Speaker, SpeakerOff, Grid, List, Carousel
 };
 void icon(ImDrawList* dl, Icon icon, ImVec2 topLeft, float size, ImU32 color);
 

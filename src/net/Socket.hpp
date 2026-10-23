@@ -41,6 +41,9 @@ public:
 std::optional<Address> resolve(const std::string& host, uint16_t port);
 // Les adresses IPv4 de ce PC sur ses réseaux locaux (box, Radmin, Hamachi...).
 std::vector<uint32_t> localAddresses();
+// Les adresses de "diffusion" de ces réseaux (192.168.1.255...) : un paquet
+// envoyé là arrive à tous les PC du réseau. 255.255.255.255 compris.
+std::vector<uint32_t> broadcastAddresses();
 bool isPrivate(uint32_t ip);
 
 class UdpSocket {

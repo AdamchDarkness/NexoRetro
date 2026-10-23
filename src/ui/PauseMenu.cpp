@@ -9,7 +9,8 @@ using theme::Weight;
 
 namespace ui {
 
-PauseAction PauseMenu::draw(const std::string& gameTitle, const std::string& systemName, int& volume, bool& volumeChanged)
+PauseAction PauseMenu::draw(const std::string& gameTitle, const std::string& systemName, int& volume, bool& volumeChanged,
+                            const OnlineMenu& online)
 {
     volumeChanged = false;
     PauseAction action = PauseAction::None;
@@ -53,6 +54,14 @@ PauseAction PauseMenu::draw(const std::string& gameTitle, const std::string& sys
     item("Capture d'écran (F12)", PauseAction::Screenshot, ButtonStyle::Soft, draw::Icon::Image);
     item("Plein écran (F11)", PauseAction::Fullscreen, ButtonStyle::Soft, draw::Icon::None);
     item("Commandes de la console", PauseAction::Controls, ButtonStyle::Soft, draw::Icon::Gamepad);
+    if (online.online) {
+        // En ligne : le micro, et le ping à l'écran.
+        if (online.voice)
+            item(online.micMuted ? "Réactiver mon micro" : "Couper mon micro", PauseAction::ToggleMic, ButtonStyle::Soft,
+                 online.micMuted ? draw::Icon::Mic : draw::Icon::MicOff);
+        item(online.netStats ? "Masquer le ping et les pertes" : "Afficher le ping et les pertes", PauseAction::ToggleNetStats,
+             ButtonStyle::Soft, draw::Icon::Users);
+    }
     // Le volume : une barre à faire glisser (ou gauche/droite à la manette).
     space(4.0f);
     text("Volume", 13.0f, Weight::Bold, theme::Muted);

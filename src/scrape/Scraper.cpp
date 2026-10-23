@@ -775,4 +775,18 @@ void Scraper::searchCoversJob(const Job& job)
     post({.kind = Result::Kind::SearchDone, .searchId = job.searchId});
 }
 
+std::string boxartUrl(const GameInfo& info)
+{
+    // Le fichier est rangé comme sur le serveur : images/<base>/Named_Boxarts/<nom>.png
+    // (les noms trop longs sont raccourcis sur le disque : on ne sait plus les retrouver).
+    if (info.boxart.empty())
+        return {};
+    const fs::path file = fromUtf8(info.boxart);
+    const std::string name = toUtf8(file.stem());
+    const std::string system = toUtf8(file.parent_path().parent_path().filename());
+    if (name.size() > 80 || system.empty())
+        return {};
+    return kThumbnailsUrl + net::urlEncode(system) + "/Named_Boxarts/" + net::urlEncode(name) + ".png";
+}
+
 } // namespace scrape

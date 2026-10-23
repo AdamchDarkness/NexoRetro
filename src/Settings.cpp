@@ -31,6 +31,15 @@ void Settings::load(const std::filesystem::path& file)
         else if (key == "autoSaveState") autoSaveState = number != 0;
         else if (key == "autoScrape") autoScrape = number != 0;
         else if (key == "nickname" && !value.empty()) nickname = value;
+        else if (key == "libraryView") libraryView = std::clamp(number, 0, 2);
+        else if (key == "coreAutoUpdate") coreAutoUpdate = number != 0;
+        else if (key == "netStats") netStats = number != 0;
+        else if (key == "voiceMode") voiceMode = std::clamp(number, 0, 2);
+        else if (key == "voiceKey" && number > 0) voiceKey = number;
+        else if (key == "voiceVolume") voiceVolume = std::clamp(number, 0, 200);
+        else if (key == "voiceSensitivity") voiceSensitivity = std::clamp(number, 0, 100);
+        else if (key == "discordPresence") discordPresence = number != 0;
+        else if (key == "discordAppId") discordAppId = value;
         else if (key.rfind("external.", 0) == 0) externalPaths[key.substr(9)] = value;
         else if (key.rfind("externalArgs.", 0) == 0) externalArgs[key.substr(13)] = value;
     }
@@ -54,7 +63,16 @@ void Settings::save(const std::filesystem::path& file) const
         << "fastForwardSpeed=" << fastForwardSpeed << '\n'
         << "autoSaveState=" << autoSaveState << '\n'
         << "autoScrape=" << autoScrape << '\n'
-        << "nickname=" << nickname << '\n';
+        << "nickname=" << nickname << '\n'
+        << "libraryView=" << libraryView << '\n'
+        << "coreAutoUpdate=" << coreAutoUpdate << '\n'
+        << "netStats=" << netStats << '\n'
+        << "voiceMode=" << voiceMode << '\n'
+        << "voiceKey=" << voiceKey << '\n'
+        << "voiceVolume=" << voiceVolume << '\n'
+        << "voiceSensitivity=" << voiceSensitivity << '\n'
+        << "discordPresence=" << discordPresence << '\n'
+        << "discordAppId=" << discordAppId << '\n';
     for (const auto& [id, path] : externalPaths)
         out << "external." << id << '=' << path << '\n';
     for (const auto& [id, args] : externalArgs)

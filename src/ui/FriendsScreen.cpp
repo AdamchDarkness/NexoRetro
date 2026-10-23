@@ -70,6 +70,41 @@ void avatarColors(uint8_t id, ImU32& bg, ImU32& fg)
     fg = theme::rgb(fgs[id % 8]);
 }
 
+Tone toneOf(net::LinkQuality q)
+{
+    switch (q) {
+    case net::LinkQuality::Excellent:
+    case net::LinkQuality::Good: return Tone::Success;
+    case net::LinkQuality::Fair: return Tone::Warning;
+    case net::LinkQuality::Poor: return Tone::Danger;
+    case net::LinkQuality::Unknown: break;
+    }
+    return Tone::Neutral;
+}
+
+ImU32 dotColor(net::LinkQuality q)
+{
+    switch (q) {
+    case net::LinkQuality::Excellent:
+    case net::LinkQuality::Good: return theme::rgb(0x22C55E);
+    case net::LinkQuality::Fair: return theme::rgb(0xF59E0B);
+    case net::LinkQuality::Poor: return theme::rgb(0xEF4444);
+    case net::LinkQuality::Unknown: break;
+    }
+    return theme::Track;
+}
+
+// "42 ms · 0 % de pertes"
+std::string linkText(const net::Member& m)
+{
+    if (m.pingMs < 0)
+        return "Mesure…";
+    std::string t = std::to_string(m.pingMs) + " ms";
+    if (m.lossPct >= 0)
+        t += " · " + std::to_string(m.lossPct) + " % de pertes";
+    return t;
+}
+
 std::string lower(std::string s)
 {
     for (char& c : s)
@@ -113,7 +148,25 @@ void FriendsScreen::drawMembers(UiContext& ctx, float width)
 {
     net::Session& session = ctx.session;
     const auto& members = session.members();
-    overline(("MEMBRES · " + std::to_string(members.size()) + " / " + std::to_string(net::Session::kMaxMembers)).c_str());
+    VoiceChat& voice = ctx.voice;
+    const bool voiceOn = ctx.settings.voiceMode != 0;
+    {
+        // Titre de la liste, et à droite : son micro.
+        const ImVec2 top = ImGui::GetCursorPos();
+        overline(("MEMBRES · " + std::to_string(members.size()) + " / " + std::to_string(net::Session::kMaxMembers)).c_str());
+        const ImVec2 after = ImGui::GetCursorPos();
+        if (voiceOn) {
+            const bool muted = voice.selfMuted();
+            const char* label = muted ? "Micro coupé" : "Micro actif";
+            const float bw = draw::measure(Weight::Bold, 12.0f, label).x + px(52.0f);
+            ImGui::SetCursorPos(ImVec2(top.x + width - bw, top.y - px(6.0f)));
+            if (button(label, {.style = muted ? ButtonStyle::Outline : ButtonStyle::Soft,
+                               .icon = muted ? draw::Icon::MicOff : draw::Icon::Mic, .height = 30.0f, .fontSize = 12.0f,
+                               .tooltip = muted ? "Vos amis ne vous entendent plus" : "Couper mon micro"}))
+                voice.setSelfMuted(!muted);
+            ImGui::SetCursorPos(after);
+        }
+    }
     for (const net::Member& m : members) {
         ImGui::PushID(m.id);
         const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -123,24 +176,45 @@ void FriendsScreen::drawMembers(UiContext& ctx, float width)
         ImU32 bg, fg;
         avatarColors(m.id, bg, fg);
         const std::string initial = m.name.substr(0, 1);
+        // Un anneau vert autour de celui qui parle.
+        if (voiceOn && voice.talking(m.id))
+            dl->AddCircle(ImVec2(p.x + px(28.0f), p.y + h / 2), px(23.0f), theme::rgb(0x22C55E), 32, px(2.5f));
         avatar(dl, ImVec2(p.x + px(28.0f), p.y + h / 2), px(20.0f), initial.c_str(), bg, fg);
 
         // Nom (+ "vous" / "hôte") et ping.
         std::string name = m.name + (m.self ? " (vous)" : "");
         const ImVec2 status = pillSize(statusLabel(m.status));
         const bool canKick = session.isHost() && !m.self;
-        const float rightW = status.x + (canKick ? px(44.0f) : 0.0f) + px(12.0f);
+        const bool canMute = voiceOn && !m.self;
+        const float buttons = (canKick ? px(40.0f) : 0.0f) + (canMute ? px(40.0f) : 0.0f);
+        const float rightW = (session.game() ? status.x : 0.0f) + buttons + px(16.0f);
         draw::textEllipsis(dl, ImVec2(p.x + px(58.0f), p.y + px(10.0f)), Weight::Bold, 14.0f, theme::Ink, name,
                            width - px(70.0f) - rightW);
-        std::string sub = m.host ? "Hôte" : "Membre";
-        if (!m.self && m.pingMs >= 0)
-            sub += " · " + std::to_string(m.pingMs) + " ms";
-        draw::text(dl, ImVec2(p.x + px(58.0f), p.y + px(31.0f)), Weight::Medium, 12.0f, theme::Muted, sub);
+        // Hôte ou membre ; et la qualité de la liaison (un point de couleur,
+        // le ping et les pertes). Pour un membre, celle des autres est
+        // mesurée par l'hôte.
+        const std::string role = m.host ? "Hôte" : "Membre";
+        const ImVec2 subPos(p.x + px(58.0f), p.y + px(31.0f));
+        draw::text(dl, subPos, Weight::Medium, 12.0f, theme::Muted, role);
+        if (!m.self) {
+            const float roleW = draw::measure(Weight::Medium, 12.0f, role).x;
+            const net::LinkQuality q = net::qualityOf(m.pingMs, m.lossPct);
+            dl->AddCircleFilled(ImVec2(subPos.x + roleW + px(10.0f), subPos.y + px(8.0f)), px(3.5f), dotColor(q));
+            draw::textEllipsis(dl, ImVec2(subPos.x + roleW + px(18.0f), subPos.y), Weight::Medium, 12.0f, theme::Muted,
+                               linkText(m), width - px(76.0f) - roleW - rightW);
+        }
 
-        // État du jeu, et bouton pour retirer (hôte).
-        float x = p.x + width - px(12.0f) - (canKick ? px(40.0f) : 0.0f) - status.x;
+        // État du jeu, puis les boutons : ne plus l'entendre, retirer (hôte).
+        float x = p.x + width - px(12.0f) - buttons - status.x;
         if (session.game())
             pillAt(dl, ImVec2(x, p.y + (h - status.y) / 2), statusLabel(m.status), toneOf(m.status));
+        if (canMute) {
+            const bool muted = voice.memberMuted(m.id);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + width - px(44.0f) - (canKick ? px(40.0f) : 0.0f), p.y + (h - px(32.0f)) / 2));
+            if (iconButton("##mute", muted ? draw::Icon::SpeakerOff : draw::Icon::Speaker, ButtonStyle::Ghost, 32.0f,
+                           muted ? "L'entendre à nouveau" : "Ne plus l'entendre"))
+                voice.setMemberMuted(m.id, !muted);
+        }
         if (canKick) {
             ImGui::SetCursorScreenPos(ImVec2(p.x + width - px(44.0f), p.y + (h - px(32.0f)) / 2));
             if (iconButton("##kick", draw::Icon::Close, ButtonStyle::Ghost, 32.0f, "Retirer du salon"))
@@ -211,6 +285,14 @@ void FriendsScreen::drawSalon(UiContext& ctx, float width, float height)
         codeBox("invite", session.inviteCode(), inner);
         if (m_hostPassword[0] != '\0')
             text("Donnez aussi le mot de passe à vos amis.", 12.0f, Weight::SemiBold, theme::Muted);
+        // Le code complet (toutes les adresses) : pour Tailscale et les
+        // réseaux où le code court ne suffit pas.
+        if (link(m_showFullCode ? "Masquer le code complet" : "Le code ne marche pas ? Code complet", 12.0f))
+            m_showFullCode = !m_showFullCode;
+        if (m_showFullCode) {
+            space(2.0f);
+            codeBox("full", session.fullInviteCode(), inner);
+        }
         space(6.0f);
         drawMembers(ctx, inner);
         space(8.0f);
@@ -395,6 +477,31 @@ void FriendsScreen::drawGame(UiContext& ctx, float width, float height)
     if (button("Lancer la partie", {.style = ButtonStyle::Primary, .icon = draw::Icon::Play, .height = 40.0f,
                                     .disabled = why != nullptr, .tooltip = why}))
         ctx.startNetplay();
+    // La connexion avec l'ami le moins bien relié : à voir avant de lancer.
+    // (Un membre ne mesure lui-même que sa liaison avec l'hôte.)
+    const net::Member* worst = nullptr;
+    for (const net::Member& m : session.members()) {
+        if (m.self || (!host && !m.host))
+            continue;
+        if (!worst || static_cast<int>(net::qualityOf(m.pingMs, m.lossPct)) >
+                          static_cast<int>(net::qualityOf(worst->pingMs, worst->lossPct)))
+            worst = &m;
+    }
+    if (worst) {
+        const net::LinkQuality q = net::qualityOf(worst->pingMs, worst->lossPct);
+        space(2.0f);
+        const std::string label = std::string("Connexion : ") + net::qualityLabel(q);
+        pill(label.c_str(), toneOf(q), 12.0f);
+        if (worst->pingMs >= 0) {
+            sameLine(8.0f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + px(3.0f));
+            text((session.members().size() > 2 ? worst->name + " : " : std::string()) + linkText(*worst), 12.0f,
+                 Weight::Medium, theme::Muted);
+        }
+        if (q == net::LinkQuality::Poor)
+            textWrapped("Connexion difficile : la partie risque de ramer. Un câble Ethernet aide souvent plus que le Wi-Fi.",
+                        12.0f, Weight::Medium, theme::Warning, textW);
+    }
     if (!host && game)
         text("La partie démarrera chez vous automatiquement.", 12.0f, Weight::Medium, theme::Muted);
     ImGui::EndGroup();
@@ -554,8 +661,9 @@ void FriendsScreen::drawHelp(float width)
     ImGui::BeginGroup();
     text("Ça ne passe toujours pas ?", 14.0f, Weight::ExtraBold);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
-    textWrapped("Utilisez Radmin VPN, Hamachi ou Tailscale : l'émulateur passe directement par eux, sans réglage.", 13.0f,
-                Weight::Medium, theme::Muted, width - px(100.0f));
+    textWrapped("Utilisez Radmin VPN, Hamachi ou Tailscale : l'émulateur passe directement par eux, sans réglage (avec "
+                "Tailscale, donnez le code complet).",
+                13.0f, Weight::Medium, theme::Muted, width - px(100.0f));
     ImGui::EndGroup();
     endCard();
 }
@@ -578,11 +686,11 @@ void FriendsScreen::draw(UiContext& ctx)
         // (L'hôte a une ligne de plus : le point de départ de la partie.)
         const auto& salonGame = ctx.session.game();
         const bool linkable = salonGame && net::LinkPlay::consoleLink(salonGame->systemId);
-        float gameH = 230.0f;
+        float gameH = 264.0f; // (+ la ligne "Connexion")
         if (ctx.session.isHost() && salonGame)
-            gameH = linkable ? 390.0f : 300.0f;
+            gameH = linkable ? 424.0f : 334.0f;
         else if (salonGame && salonGame->link)
-            gameH = 360.0f;
+            gameH = 394.0f;
         drawGame(ctx, rightW, px(gameH));
         space(14.0f);
         drawChat(ctx, rightW, ImGui::GetContentRegionAvail().y);

@@ -1,5 +1,7 @@
 #include "Socket.hpp"
 
+#include <algorithm>
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <winsock2.h>
@@ -73,11 +75,14 @@ bool isPrivate(uint32_t ip)
            (a == 100 && b >= 64 && b <= 127);    // Tailscale, réseaux d'opérateurs
 }
 
-std::vector<uint32_t> localAddresses()
+namespace {
+
+// Les adresses de ce PC et la taille de leur réseau (24 pour 192.168.1.x).
+std::vector<std::pair<uint32_t, int>> adapterAddresses()
 {
     // GetAdaptersAddresses liste toutes les cartes réseau, y compris les
     // cartes virtuelles des VPN comme Radmin ou Hamachi.
-    std::vector<uint32_t> result;
+    std::vector<std::pair<uint32_t, int>> result;
     ULONG size = 16 * 1024;
     std::vector<unsigned char> buffer(size);
     auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
@@ -97,8 +102,32 @@ std::vector<uint32_t> localAddresses()
             const uint32_t ip = ntohl(in->sin_addr.s_addr);
             if ((ip >> 16) == 0xA9FE) // 169.254.x.x : adresse "sans réseau"
                 continue;
-            result.push_back(ip);
+            result.push_back({ip, u->OnLinkPrefixLength});
         }
+    }
+    return result;
+}
+
+} // namespace
+
+std::vector<uint32_t> localAddresses()
+{
+    std::vector<uint32_t> result;
+    for (const auto& [ip, prefix] : adapterAddresses())
+        result.push_back(ip);
+    return result;
+}
+
+std::vector<uint32_t> broadcastAddresses()
+{
+    // 192.168.1.20/24 -> 192.168.1.255 : tous les PC de ce réseau à la fois.
+    std::vector<uint32_t> result = {0xFFFFFFFFu};
+    for (const auto& [ip, prefix] : adapterAddresses()) {
+        if (!isPrivate(ip) || prefix <= 0 || prefix >= 31)
+            continue;
+        const uint32_t broadcast = ip | (0xFFFFFFFFu >> prefix);
+        if (std::find(result.begin(), result.end(), broadcast) == result.end())
+            result.push_back(broadcast);
     }
     return result;
 }
@@ -122,6 +151,9 @@ bool UdpSocket::open(uint16_t port)
         closesocket(s);
         return false;
     }
+    // Permet d'envoyer à une adresse de diffusion (tout le réseau local).
+    BOOL broadcast = TRUE;
+    setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&broadcast), sizeof(broadcast));
     // Mode non bloquant : recvfrom rend la main tout de suite s'il n'y a rien.
     u_long nonBlocking = 1;
     ioctlsocket(s, FIONBIO, &nonBlocking);

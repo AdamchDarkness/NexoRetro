@@ -8,6 +8,7 @@ namespace {
 
 constexpr char kAlphabet[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 constexpr uint8_t kVersion = 1;
+constexpr size_t kShortSymbols = 16; // 10 octets = 80 bits = 16 symboles de 5 bits
 
 void put16(std::vector<uint8_t>& out, uint32_t v)
 {
@@ -29,24 +30,10 @@ uint8_t checksum(const std::vector<uint8_t>& bytes, size_t count)
     return sum;
 }
 
-} // namespace
-
-// Format binaire :
-//   version (1) | salon (4) | nombre d'adresses (1) | adresses (ip 4 + port 2) | contrôle (1)
-std::string encodeInvite(const Invite& invite)
+// Base 32 : on lit les octets 5 bits par 5 bits, et on les présente par
+// groupes de 4 pour la lisibilité ("EMU-7K3P-Q9XW-...").
+std::string toCode(const std::vector<uint8_t>& bytes)
 {
-    std::vector<uint8_t> bytes;
-    bytes.push_back(kVersion);
-    put32(bytes, invite.session);
-    const size_t count = std::min<size_t>(invite.candidates.size(), 5);
-    bytes.push_back(static_cast<uint8_t>(count));
-    for (size_t i = 0; i < count; ++i) {
-        put32(bytes, invite.candidates[i].ip);
-        put16(bytes, invite.candidates[i].port);
-    }
-    bytes.push_back(checksum(bytes, bytes.size()));
-
-    // Base 32 : on lit les octets 5 bits par 5 bits.
     std::string code;
     uint32_t buffer = 0;
     int bits = 0;
@@ -61,11 +48,42 @@ std::string encodeInvite(const Invite& invite)
     if (bits > 0)
         code += kAlphabet[(buffer << (5 - bits)) & 31];
 
-    // Groupes de 4 pour la lisibilité.
     std::string pretty = "EMU";
     for (size_t i = 0; i < code.size(); i += 4)
         pretty += "-" + code.substr(i, 4);
     return pretty;
+}
+
+} // namespace
+
+// Format binaire du code complet :
+//   version (1) | salon (4) | nombre d'adresses (1) | adresses (ip 4 + port 2) | contrôle (1)
+std::string encodeInvite(const Invite& invite)
+{
+    std::vector<uint8_t> bytes;
+    bytes.push_back(kVersion);
+    put32(bytes, invite.session);
+    const size_t count = std::min<size_t>(invite.candidates.size(), 5);
+    bytes.push_back(static_cast<uint8_t>(count));
+    for (size_t i = 0; i < count; ++i) {
+        put32(bytes, invite.candidates[i].ip);
+        put16(bytes, invite.candidates[i].port);
+    }
+    bytes.push_back(checksum(bytes, bytes.size()));
+    return toCode(bytes);
+}
+
+// Format binaire du code court (toujours 10 octets, donc 16 symboles) :
+//   salon (3) | ip (4) | port (2) | contrôle (1)
+std::string encodeShortInvite(uint32_t session, const Address& address)
+{
+    std::vector<uint8_t> bytes;
+    bytes.push_back(static_cast<uint8_t>(session >> 16));
+    put16(bytes, session & 0xFFFF);
+    put32(bytes, address.ip);
+    put16(bytes, address.port);
+    bytes.push_back(static_cast<uint8_t>(checksum(bytes, bytes.size()) ^ 0xA5)); // ^ 0xA5 : distinct du code complet
+    return toCode(bytes);
 }
 
 std::optional<Invite> decodeInvite(const std::string& text)
@@ -99,6 +117,18 @@ std::optional<Invite> decodeInvite(const std::string& text)
             bits -= 8;
         }
     }
+    auto get16 = [&](size_t at) { return static_cast<uint32_t>((bytes[at] << 8) | bytes[at + 1]); };
+
+    // Code court : une seule adresse (les PC du même réseau local se
+    // trouvent tout seuls, voir Session::join).
+    if (code.size() == kShortSymbols) {
+        if (bytes.size() != 10 || static_cast<uint8_t>(checksum(bytes, 9) ^ 0xA5) != bytes[9])
+            return std::nullopt;
+        Invite invite;
+        invite.session = (static_cast<uint32_t>(bytes[0]) << 16) | get16(1);
+        invite.candidates.push_back({(get16(3) << 16) | get16(5), static_cast<uint16_t>(get16(7))});
+        return invite;
+    }
 
     if (bytes.size() < 7 || bytes[0] != kVersion)
         return std::nullopt;
@@ -107,7 +137,6 @@ std::optional<Invite> decodeInvite(const std::string& text)
     if (count > 5 || bytes.size() < expected || checksum(bytes, expected - 1) != bytes[expected - 1])
         return std::nullopt;
 
-    auto get16 = [&](size_t at) { return static_cast<uint32_t>((bytes[at] << 8) | bytes[at + 1]); };
     Invite invite;
     invite.session = (get16(1) << 16) | get16(3);
     for (size_t i = 0; i < count; ++i) {

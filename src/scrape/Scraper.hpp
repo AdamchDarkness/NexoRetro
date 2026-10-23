@@ -51,6 +51,10 @@ struct GameInfo {
     std::string database;    // base libretro où il a été reconnu ("MAME"...)
 };
 
+// L'adresse web de la jaquette d'un jeu (vide si inconnue) : Discord
+// l'affiche à côté du nom du jeu.
+std::string boxartUrl(const GameInfo& info);
+
 // Une jaquette proposée dans la fenêtre "Changer la jaquette".
 struct CoverChoice {
     std::string name; // "Street Fighter Alpha 2 (Europe)"

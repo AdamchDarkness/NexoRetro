@@ -1,19 +1,19 @@
 ﻿cmake_minimum_required(VERSION 3.24)
-project(Emulateur VERSION 0.1.2 LANGUAGES C CXX)
+project(Emulateur VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Le "runtime" C/C++ de Microsoft (vcruntime140.dll...) est inclus DANS
-# l'exÃ©cutable : il marche sur un PC qui n'a pas installÃ© le "Visual C++
+# l'exécutable : il marche sur un PC qui n'a pas installé le "Visual C++
 # Redistributable" (celui d'un ami, par exemple). Valable aussi pour SDL et
-# les autres bibliothÃ¨ques compilÃ©es ici (dÃ©clarÃ© avant elles).
+# les autres bibliothèques compilées ici (déclaré avant elles).
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-# --- SDL3 : fenÃªtre, rendu, son et manettes --------------------------------
-# TÃ©lÃ©chargÃ© et compilÃ© automatiquement au premier "cmake", puis liÃ© en
-# statique : l'exÃ©cutable final n'a besoin d'aucune DLL Ã  cÃ´tÃ© de lui.
+# --- SDL3 : fenêtre, rendu, son et manettes --------------------------------
+# Téléchargé et compilé automatiquement au premier "cmake", puis lié en
+# statique : l'exécutable final n'a besoin d'aucune DLL à côté de lui.
 include(FetchContent)
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
@@ -21,20 +21,20 @@ set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     SDL3
     # Archive officielle de la release (elle contient VERSION.txt : sans lui,
-    # SDL interroge git et se trompe de dÃ©pÃ´t).
+    # SDL interroge git et se trompe de dépôt).
     URL https://github.com/libsdl-org/SDL/releases/download/release-3.2.28/SDL3-3.2.28.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(SDL3)
 
-# OpenGL : fourni par le systÃ¨me (opengl32.lib sous Windows).
+# OpenGL : fourni par le système (opengl32.lib sous Windows).
 find_package(OpenGL REQUIRED)
 
-# --- Vulkan : seulement les en-tÃªtes officiels (Khronos) --------------------
-# Pas de bibliothÃ¨que Ã  lier : vulkan-1.dll, installÃ©e avec le pilote de la
-# carte graphique, est chargÃ©e Ã  l'exÃ©cution (voir src/VulkanRender.cpp).
+# --- Vulkan : seulement les en-têtes officiels (Khronos) --------------------
+# Pas de bibliothèque à lier : vulkan-1.dll, installée avec le pilote de la
+# carte graphique, est chargée à l'exécution (voir src/VulkanRender.cpp).
 # Sans elle, les cores Vulkan ne marchent pas, mais tout le reste si.
-set(VULKAN_HEADERS_ENABLE_MODULE OFF CACHE BOOL "" FORCE) # pas de module C++20 : les en-tÃªtes suffisent
+set(VULKAN_HEADERS_ENABLE_MODULE OFF CACHE BOOL "" FORCE) # pas de module C++20 : les en-têtes suffisent
 FetchContent_Declare(
     vulkan_headers
     URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.3.290.tar.gz
@@ -43,8 +43,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(vulkan_headers)
 
 # --- Dear ImGui : l'interface graphique -------------------------------------
-# ImGui n'a pas de CMakeLists.txt : on compile nous-mÃªmes ses fichiers, avec
-# les "backends" qui le branchent sur SDL3 (entrÃ©es) et OpenGL 3 (dessin).
+# ImGui n'a pas de CMakeLists.txt : on compile nous-mêmes ses fichiers, avec
+# les "backends" qui le branchent sur SDL3 (entrées) et OpenGL 3 (dessin).
 FetchContent_Declare(
     imgui
     URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b.tar.gz
@@ -63,7 +63,7 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui PUBLIC SDL3::SDL3-static OpenGL::GL)
 
-# --- miniupnpc : demander Ã  la box d'ouvrir un port (UPnP) ------------------
+# --- miniupnpc : demander à la box d'ouvrir un port (UPnP) ------------------
 set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(UPNPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
@@ -76,7 +76,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(miniupnpc)
 
-# --- L'exÃ©cutable ----------------------------------------------------------
+# --- Opus : la compression de la voix (chat vocal) --------------------------
+# Le codec libre de référence pour la voix sur Internet (Discord, WebRTC) :
+# 20 ms de voix tiennent dans environ 60 octets.
+set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    opus
+    URL https://github.com/xiph/opus/releases/download/v1.5.2/opus-1.5.2.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(opus)
+
+# --- L'exécutable ----------------------------------------------------------
 add_executable(emulateur
     # Le moteur : chargement des cores, image, son, manettes.
     src/main.cpp
@@ -94,8 +109,11 @@ add_executable(emulateur
     src/Video.cpp
     src/VulkanRender.cpp
     src/Audio.cpp
+    src/VoiceChat.cpp
+    src/Discord.cpp
+    src/CoreUpdater.cpp
     src/Input.cpp
-    # Les donnÃ©es : jeux, BIOS, rÃ©glages, historique.
+    # Les données : jeux, BIOS, réglages, historique.
     src/Library.cpp
     src/UserData.cpp
     src/Settings.cpp
@@ -135,10 +153,10 @@ add_executable(emulateur
     src/ui/PauseMenu.cpp
 )
 target_include_directories(emulateur PRIVATE third_party/libretro third_party/stb)
-target_link_libraries(emulateur PRIVATE SDL3::SDL3-static OpenGL::GL imgui miniupnpc::miniupnpc Vulkan::Headers)
+target_link_libraries(emulateur PRIVATE SDL3::SDL3-static OpenGL::GL imgui miniupnpc::miniupnpc Vulkan::Headers opus)
 if(WIN32)
-    # ws2_32 : les sockets de Windows ; iphlpapi : la liste des cartes rÃ©seau ;
-    # winhttp : les tÃ©lÃ©chargements HTTPS (scraping).
+    # ws2_32 : les sockets de Windows ; iphlpapi : la liste des cartes réseau ;
+    # winhttp : les téléchargements HTTPS (scraping).
     target_link_libraries(emulateur PRIVATE ws2_32 iphlpapi winhttp)
 endif()
 
@@ -157,7 +175,7 @@ if(MSVC)
     target_compile_options(netplay_test_libretro PRIVATE /utf-8 /W4)
 endif()
 
-# Les polices (assets/) sont copiÃ©es Ã  cÃ´tÃ© de l'exÃ©cutable aprÃ¨s chaque compilation.
+# Les polices (assets/) sont copiées à côté de l'exécutable après chaque compilation.
 add_custom_command(TARGET emulateur POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:emulateur>/assets
 )

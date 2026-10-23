@@ -12,12 +12,15 @@
 #include "../Bios.hpp"
 #include "../Cheats.hpp"
 #include "../Core.hpp"
+#include "../CoreUpdater.hpp"
+#include "../Discord.hpp"
 #include "../ExternalInstaller.hpp"
 #include "../FileDialogs.hpp"
 #include "../Input.hpp"
 #include "../Library.hpp"
 #include "../Settings.hpp"
 #include "../UserData.hpp"
+#include "../VoiceChat.hpp"
 #include "../net/Netplay.hpp"
 #include "../net/Session.hpp"
 #include "../scrape/Scraper.hpp"
@@ -88,6 +91,9 @@ struct UiContext {
     OnlineState& online;
     scrape::Scraper& scraper;
     ExternalInstaller& installer;
+    VoiceChat& voice;
+    CoreUpdater& coreUpdater;
+    DiscordPresence& discord;
     std::filesystem::path dataDir;
 
     std::function<void(const Game&, const std::filesystem::path& state)> play;
@@ -152,9 +158,21 @@ public:
     void draw(UiContext& ctx);
 
 private:
+    void drawGrid(UiContext& ctx, const std::vector<const Game*>& games);
+    void drawList(UiContext& ctx, const std::vector<const Game*>& games);
+    void drawCarousel(UiContext& ctx, const std::vector<const Game*>& games);
+
     std::string m_filter = "all"; // "all", "fav", "recent" ou l'id d'une console
     char m_search[128] = "";
     int m_sort = 0;
+    // Filtres (vide / 0 = tous).
+    std::string m_genre;
+    std::string m_publisher;
+    int m_decade = 0;  // 1990 = années 90
+    int m_players = 0; // au moins ce nombre de joueurs
+    // Carrousel : le jeu choisi, et la position affichée (qui glisse vers lui).
+    int m_carouselIndex = 0;
+    float m_carouselPos = 0.0f;
 };
 
 class GameScreen {
@@ -236,6 +254,7 @@ private:
     char m_pickerSearch[64] = "";
     bool m_openPicker = false;
     bool m_pickOwn = false;        // câble link : choisir SON jeu (et non celui du salon)
+    bool m_showFullCode = false;   // hôte : afficher aussi le code complet
     size_t m_chatSeen = 0;         // pour défiler vers le bas à chaque nouveau message
 };
 
@@ -245,6 +264,8 @@ public:
 
 private:
     void drawControls(UiContext& ctx, float width); // réassignation des touches
+    void drawVoice(UiContext& ctx, float width, bool& changed);
+    void drawDiscord(UiContext& ctx, float width, bool& changed);
     void drawCoreOptions(UiContext& ctx, float width);
     void drawExternal(UiContext& ctx, float width); // émulateurs externes
     void drawCores(UiContext& ctx, float width);    // cores libretro : installer, mettre à jour
@@ -259,6 +280,8 @@ private:
     std::map<std::string, std::string> m_optionValues; // contenu de core-options.txt
     int m_device = -1; // -1 = clavier, sinon indice de la manette
     char m_nickname[48] = "";
+    bool m_waitingVoiceKey = false; // "Touche pour parler" : en attente d'une touche
+    char m_discordId[32] = "";
 };
 
 // L'enveloppe de l'application : barre du haut + écran courant.

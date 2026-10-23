@@ -3,8 +3,9 @@
 Un frontend d'émulation multi-consoles pour Windows, basé sur [libretro](https://www.libretro.com/),
 avec une interface claire et minimaliste : bibliothèque de jeux avec jaquettes, fiche de chaque jeu,
 BIOS reconnus à leur contenu, émulateurs installés en un clic, **jeu en ligne sans serveur avec
-rollback** (comme GGPO) et câble link, retour en arrière, avance rapide, et commandes réglables
-console par console. Interface en anglais et en français.
+rollback** (comme GGPO), chat vocal et câble link, retour en arrière, avance rapide, commandes
+réglables console par console, cores mis à jour tout seuls et « Joue à... » sur Discord. Interface
+en anglais, français, espagnol, portugais (Brésil) et allemand.
 
 **Consoles** : NES, Super Nintendo, Nintendo 64, Game Boy, Game Boy Color, Game Boy Advance, Nintendo
 DS, Nintendo 3DS, GameCube, Wii, Mega Drive / Genesis, Sega CD, Saturn, Dreamcast, PlayStation, PS2,
@@ -98,8 +99,29 @@ sauvegardes d'état et ses captures. La fiche du jeu a un bouton « Ouvrir le do
 3. Déposez vos BIOS sur l'écran **BIOS** (un fichier ou un dossier entier) : ils sont reconnus à leur
    contenu et rangés au bon endroit. GameCube/Wii et PSP n'ont pas de BIOS, mais des fichiers libres
    de Dolphin et PPSSPP, installables depuis la fiche d'un jeu.
-4. Pour jouer en ligne : écran **Amis** → Créer le salon → envoyer le code ; l'ami le colle et
-   rejoint. Même fichier de jeu et même version d'émulateur des deux côtés.
+4. Pour jouer en ligne : écran **Amis** → Créer le salon → envoyer le code (`EMU-XXXX-XXXX-XXXX-XXXX`) ;
+   l'ami le colle et rejoint. Même fichier de jeu et même version d'émulateur des deux côtés. Le
+   salon affiche le ping et les pertes de chacun, et la qualité de la connexion avant de lancer.
+
+**Bibliothèque** : recherche instantanée (titre, console, genre, éditeur, année ; plusieurs mots,
+sans tenir compte des accents), filtres par genre, décennie, nombre de joueurs et éditeur, tri par
+année, et trois vues : grille de jaquettes, liste détaillée, carrousel (flèches, molette ou manette ;
+Entrée pour jouer).
+
+**Chat vocal** (Paramètres → Jeu en ligne) : micro ouvert (n'envoie que quand on parle, sensibilité
+réglable) ou appuyer pour parler (touche au choix, T par défaut), volume des voix, test du micro.
+Dans le salon : couper son micro, ne plus entendre un membre, anneau vert autour de celui qui parle.
+En jeu : menu pause → « Couper mon micro » et « Afficher le ping et les pertes ».
+
+**Cores à jour** : au démarrage (une fois par jour), l'émulateur compare ses cores à ceux du serveur
+de libretro et télécharge les nouvelles versions, jamais celle du jeu en cours (Paramètres →
+Émulateurs (cores) → « Mise à jour automatique », « Vérifier maintenant »).
+
+**Discord** : « Joue à Zelda · Super Nintendo », avec la jaquette et le temps de jeu, ou « En ligne
+(2 joueurs) ». L'émulateur parle à l'application Discord ouverte sur le PC (tube nommé
+`discord-ipc-0`), sans bibliothèque à installer. Il faut l'identifiant d'une application Discord
+(créée une fois sur discord.com/developers) : `kDiscordAppId` dans `src/Discord.hpp`, ou Paramètres →
+Jeu en ligne → Discord.
 
 | Touche (en jeu) | Action |
 | --- | --- |
@@ -127,6 +149,11 @@ attend 45 images puis quitte en enregistrant une capture.
 Écrans de test supplémentaires : `covers` (fenêtre « Changer la jaquette » du premier jeu), `infos`
 (Paramètres → Jaquettes et infos), `pads` (Paramètres → Manettes), `delete` (fenêtre « Supprimer »).
 `--test-remove hide|trash` retire le premier jeu de la bibliothèque (ou l'envoie à la Corbeille).
+`--library-view 0|1|2` ouvre la bibliothèque en grille, liste ou carrousel (sans l'enregistrer).
+Variables de test : `EMU_VOICE_TEST=tone` (un « la » à la place du micro), `EMU_VOICE_DUMP=fichier`
+(la voix reçue, PCM 48 kHz mono), `EMU_TEST_CORE_UPDATE=1` (vérifie les cores même en test),
+`EMU_DISCORD_TRACE=1` (tout ce que Discord répond). Pendant les tests automatiques, le vrai micro
+n'est jamais ouvert.
 
 ## Feuille de route
 
@@ -159,6 +186,13 @@ attend 45 images puis quitte en enregistrant une capture.
 - [x] GameCube et Wii séparées (reconnues au contenu du disque) ; manette Wii au choix par jeu ; visée à la souris
 - [x] **Commandes de la console** (menu en jeu) : chaque action (Wiimote 1/2/Shake, C-Haut N64...) sur le bouton de son choix
 - [x] Game Boy et Game Boy Color séparées, Sega CD, Saturn, Atari 2600/5200/7800/Lynx/Jaguar ; fichiers libres de Dolphin et PPSSPP
+- [x] **Codes d'invitation courts** (16 symboles) ; les PC du même réseau local (box, Radmin, Hamachi) se trouvent seuls
+- [x] **Ping et pertes** de chaque joueur, dans le salon et (au choix) pendant la partie ; qualité de connexion avant de lancer
+- [x] **Chat vocal** (Opus) : micro ouvert ou appuyer pour parler, couper son micro ou un membre
+- [x] **Bibliothèque** : filtres (genre, année, joueurs, éditeur), recherche sans accents, vues grille / liste / carrousel
+- [x] **Mise à jour automatique des cores** (une fois par jour, jamais celui du jeu en cours)
+- [x] Interface en **espagnol, portugais (Brésil) et allemand**
+- [x] **Discord Rich Presence** (sans SDK : tube nommé de Discord)
 - [ ] Rendu Vulkan sans recopie (image partagée Vulkan/OpenGL), pour les très hautes résolutions
 - [ ] **Liste d'amis** (prochaine mise à jour) : sans serveur, via l'annuaire décentralisé de BitTorrent
   (DHT, comme le messager Tox). Chaque joueur a une clé, son « code ami » est sa clé publique ; il y
@@ -167,7 +201,8 @@ attend 45 images puis quitte en enregistrant une capture.
 
 ## Langues
 
-L'interface est en **anglais par défaut** ; Paramètres → Display → Language la passe en français.
+L'interface est en **anglais par défaut** ; Paramètres → Display → Language la passe en français,
+espagnol, portugais (Brésil) ou allemand.
 Le code est écrit en français, et chaque autre langue est un fichier `assets/lang/<code>.txt` :
 
 ```
@@ -314,11 +349,22 @@ Il n'y a **aucun serveur ni base de données** : l'émulateur de l'hôte est le 
 
 1. L'hôte crée un salon : l'émulateur découvre son adresse publique (STUN, un service public gratuit)
    et demande à la box d'ouvrir un port (UPnP).
-2. Il partage le code `EMU-...` (Discord, WhatsApp...). Le code contient ses adresses.
-3. L'ami colle le code : son émulateur essaie toutes les adresses. Si la box de l'hôte bloque, l'ami
-   reçoit un **code de réponse** à renvoyer : l'hôte le colle et les deux box s'ouvrent l'une vers
-   l'autre (perforation de NAT).
-4. En dernier recours, Radmin VPN, Hamachi ou Tailscale fonctionnent directement.
+2. Il partage le code `EMU-XXXX-XXXX-XXXX-XXXX` (Discord, WhatsApp...) : 16 symboles qui contiennent
+   le numéro du salon et son adresse publique. L'hôte écoute de préférence sur les ports 47800 à
+   47809.
+3. L'ami colle le code : son émulateur essaie l'adresse du code et, en même temps, appelle tout son
+   réseau local sur ces ports (« diffusion ») : un hôte sur la même box, sur Radmin ou sur Hamachi
+   répond sans connaître son adresse. Si la box de l'hôte bloque, l'ami reçoit un **code de réponse**
+   à renvoyer : l'hôte le colle et les deux box s'ouvrent l'une vers l'autre (perforation de NAT).
+4. En dernier recours, Radmin VPN, Hamachi ou Tailscale fonctionnent directement. Tailscale ne
+   transmet pas la diffusion : l'hôte donne alors le **code complet** (lien sous le code), qui
+   contient toutes ses adresses.
+
+Pendant tout le salon, chaque liaison envoie 4 « pings » par seconde : leur temps de retour donne le
+ping, et ceux restés sans réponse sur les 5 dernières secondes donnent les **pertes**. La voix
+(chat vocal) passe par le même port : 20 ms de micro compressés par Opus (~60 octets), sans garantie
+d'arrivée ; l'hôte relaie la voix de chacun aux autres, et un morceau perdu est reconstitué grâce à
+la copie de secours (FEC) glissée dans le suivant.
 
 Dans le salon, l'hôte choisit un jeu : chaque membre vérifie qu'il a **exactement le même fichier**
 grâce à une empreinte de 64 bits (calculée en arrière-plan, gardée dans `hashes.txt`), et apparaît

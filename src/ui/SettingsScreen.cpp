@@ -326,6 +326,33 @@ void SettingsScreen::drawCores(UiContext& ctx, float width)
         else if (!r.backup)
             ++missing;
     }
+    // Mise à jour automatique : au démarrage, au plus une fois par jour.
+    {
+        CoreUpdater& updater = ctx.coreUpdater;
+        std::string hint = "Au démarrage, une fois par jour, sans toucher au core du jeu en cours";
+        if (updater.checking())
+            hint = "Recherche des mises à jour…";
+        else if (updater.queued() > 0)
+            hint = "Mise à jour en cours · encore " + std::to_string(updater.queued());
+        else if (updater.lastCheck() > 0)
+            hint = "Dernière vérification : " + formatAgo(updater.lastCheck()) +
+                   (updater.outdated().empty() ? " · tout est à jour"
+                                               : " · " + std::to_string(updater.outdated().size()) + " mise(s) à jour disponible(s)");
+        bool autoUpdate = ctx.settings.coreAutoUpdate;
+        settingRow("Mise à jour automatique", hint.c_str(), width, px(46.0f + 12.0f + 190.0f), [&] {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            if (button("Vérifier maintenant", {.style = ButtonStyle::Outline, .icon = draw::Icon::Refresh, .height = 38.0f,
+                                               .width = 190.0f, .fontSize = 13.0f, .disabled = updater.checking()}))
+                updater.check(true);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + px(202.0f), p.y + px(4.0f)));
+            if (toggle("##coreAuto", &autoUpdate)) {
+                ctx.settings.coreAutoUpdate = autoUpdate;
+                ctx.settingsChanged();
+            }
+            return false;
+        });
+        space(6.0f);
+    }
     if (button("Installer les cores manquants", {.style = ButtonStyle::Accent, .icon = draw::Icon::Plus, .height = 42.0f,
                                                  .fontSize = 14.0f, .disabled = working || missing == 0})) {
         for (const CoreRow& r : rows)
@@ -364,6 +391,8 @@ void SettingsScreen::drawCores(UiContext& ctx, float width)
             char mo[32];
             std::snprintf(mo, sizeof(mo), "%.1f Mo", static_cast<double>(size) / (1024.0 * 1024.0));
             hint = std::string("Installé · ") + mo + " · " + formatAgo(when);
+            if (ctx.coreUpdater.outdated().count(r.file))
+                hint += " · nouvelle version disponible";
         } else {
             hint = r.backup ? "Pas installé · seulement si le premier core ne connaît pas le jeu" : "Pas installé";
         }
@@ -381,6 +410,108 @@ void SettingsScreen::drawCores(UiContext& ctx, float width)
                 "« Mettre à jour » télécharge la dernière version. En ligne, vous et vos amis devez avoir exactement "
                 "la même version : mettez à jour en même temps, ou envoyez-leur vos fichiers .dll.",
                 13.0f, Weight::Medium, theme::Muted, width);
+}
+
+// --- Chat vocal ------------------------------------------------------------------
+
+void SettingsScreen::drawVoice(UiContext& ctx, float width, bool& changed)
+{
+    Settings& s = ctx.settings;
+    VoiceChat& voice = ctx.voice;
+    space(10.0f);
+    overline("CHAT VOCAL");
+    static const char* const modes[] = {"Désactivé", "Micro ouvert", "Appuyer pour parler"};
+    changed |= settingRow("Chat vocal", "Parler avec les membres du salon, même pendant la partie", width,
+                          segmentedWidth({"Désactivé", "Micro ouvert", "Appuyer pour parler"}),
+                          [&] { return segmented("##voiceMode", modes, &s.voiceMode); });
+    if (s.voiceMode == 0) {
+        voice.setTesting(false);
+        return;
+    }
+    if (s.voiceMode == 2) {
+        // La touche à maintenir : on clique, puis on appuie sur la touche voulue.
+        if (m_waitingVoiceKey) {
+            const bool* keys = SDL_GetKeyboardState(nullptr);
+            for (int k = SDL_SCANCODE_A; k < SDL_SCANCODE_COUNT; ++k) {
+                if (!keys[k])
+                    continue;
+                if (k != SDL_SCANCODE_ESCAPE) {
+                    s.voiceKey = k;
+                    changed = true;
+                }
+                m_waitingVoiceKey = false;
+                break;
+            }
+        }
+        const std::string keyName = m_waitingVoiceKey ? std::string("Appuyez sur une touche…")
+                                                      : SDL_GetScancodeName(static_cast<SDL_Scancode>(s.voiceKey));
+        settingRow("Touche pour parler", "Maintenue, elle ouvre votre micro (Échap pour annuler)", width, px(220.0f), [&] {
+            if (button((keyName + "##voiceKey").c_str(), {.style = m_waitingVoiceKey ? ButtonStyle::Accent : ButtonStyle::Outline,
+                                                         .height = 38.0f, .width = 220.0f, .fontSize = 13.0f}))
+                m_waitingVoiceKey = true;
+            return false;
+        });
+    } else {
+        changed |= settingRow("Sensibilité du micro", "Plus haut : votre voix passe même si vous parlez doucement", width,
+                              px(260.0f), [&] { return slider("##sens", &s.voiceSensitivity, 0, 100, 200.0f, " %"); });
+    }
+    changed |= settingRow("Volume des voix", "Le volume de vos amis (le jeu garde le sien)", width, px(260.0f),
+                          [&] { return slider("##voiceVol", &s.voiceVolume, 0, 200, 200.0f, " %"); });
+
+    // Tester son micro : on s'entend soi-même, et une jauge montre le volume
+    // (le trait = le seuil à partir duquel la voix est envoyée).
+    bool testing = voice.testing();
+    const std::string hint = !voice.micError().empty() ? voice.micError()
+                           : testing ? std::string("Vous vous entendez : parlez pour voir la jauge bouger")
+                                     : std::string("Vous entendre vous-même pour régler le micro");
+    settingRow("Tester mon micro", hint.c_str(), width, px(46.0f + 230.0f), [&] {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 bar(p.x, p.y + px(17.0f));
+        const float barW = px(210.0f);
+        draw::rect(dl, bar, ImVec2(bar.x + barW, bar.y + px(6.0f)), theme::Track, px(3.0f));
+        if (testing) {
+            const float level = voice.micLevel();
+            const float gate = VoiceChat::threshold(s.voiceSensitivity);
+            if (level > 0.02f)
+                draw::rect(dl, bar, ImVec2(bar.x + barW * level, bar.y + px(6.0f)),
+                           level >= gate || s.voiceMode == 2 ? theme::rgb(0x22C55E) : theme::Muted, px(3.0f));
+            if (s.voiceMode == 1)
+                dl->AddLine(ImVec2(bar.x + barW * gate, bar.y - px(4.0f)), ImVec2(bar.x + barW * gate, bar.y + px(12.0f)),
+                            theme::Ink, px(2.0f));
+        }
+        ImGui::SetCursorScreenPos(ImVec2(p.x + px(230.0f), p.y));
+        if (toggle("##micTest", &testing))
+            voice.setTesting(testing);
+        return false;
+    });
+}
+
+// --- Discord ---------------------------------------------------------------------
+
+void SettingsScreen::drawDiscord(UiContext& ctx, float width, bool& changed)
+{
+    Settings& s = ctx.settings;
+    space(10.0f);
+    overline("DISCORD");
+    const std::string status = ctx.discord.status();
+    changed |= settingRow("Afficher votre jeu sur Discord", ("« Joue à Zelda · Super Nintendo » · " + status).c_str(), width,
+                          px(46.0f), [&] { return toggle("##discord", &s.discordPresence); });
+    if (!s.discordPresence)
+        return;
+    // L'identifiant de l'application Discord : fourni avec l'émulateur, ou le vôtre.
+    if (m_discordId[0] == '\0' && !s.discordAppId.empty())
+        std::snprintf(m_discordId, sizeof(m_discordId), "%s", s.discordAppId.c_str());
+    const bool builtIn = kDiscordAppId[0] != '\0';
+    changed |= settingRow("Identifiant d'application", builtIn ? "Facultatif : celui de l'émulateur est déjà fourni"
+                                                               : "Créez une application sur discord.com/developers et collez son « Application ID »",
+                          width, px(240.0f), [&] {
+                              if (!textField("##discordId", m_discordId, sizeof(m_discordId), builtIn ? "Celui de l'émulateur" : "Application ID",
+                                             240.0f))
+                                  return false;
+                              s.discordAppId = m_discordId;
+                              return true;
+                          });
 }
 
 void SettingsScreen::drawCoreOptions(UiContext& ctx, float width)
@@ -557,8 +688,11 @@ void SettingsScreen::draw(UiContext& ctx)
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
     }
     ImGui::EndGroup();
-    if (m_tab != previousTab)
+    if (m_tab != previousTab) {
         ctx.input.cancelCapture();
+        ctx.voice.setTesting(false); // (le test du micro s'arrête en quittant "Jeu en ligne")
+        m_waitingVoiceKey = false;
+    }
 
     // --- Panneau.
     ImGui::SameLine(0.0f, px(32.0f));
@@ -725,7 +859,10 @@ void SettingsScreen::draw(UiContext& ctx)
             }
             return false;
         });
-        valueRow("Code ami", "À partager pour qu'on vous ajoute", "Disponible avec le jeu en ligne", nullptr, {});
+        changed |= settingRow("Ping et pertes pendant la partie", "En haut à droite de l'écran (aussi dans le menu pause)", w,
+                              px(46.0f), [&] { return toggle("##netStats", &s.netStats); });
+        drawVoice(ctx, w, changed);
+        drawDiscord(ctx, w, changed);
         break;
     }
     case 6: {

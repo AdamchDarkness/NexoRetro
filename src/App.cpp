@@ -54,11 +54,12 @@ App::App(AppOptions options)
       m_hasher(dir("hashes.txt")),
       m_scraper(dir("scraper")),
       m_installer(dir("emulators")),
+      m_coreUpdater(dir("cores")),
       m_remaps(dir("remaps.txt")),
       // Le contexte des écrans : des références vers nos membres, et des
       // lambdas qui appellent nos méthodes. [C++] [this] capture l'objet App.
       m_context{m_library, m_userData, m_settings, m_bios, m_covers, m_input, m_nav, m_session, m_online, m_scraper, m_installer,
-                m_options.dataDir,
+                m_voice, m_coreUpdater, m_discord, m_options.dataDir,
                 [this](const Game& game, const fs::path& state) {
                     // Switch, Xbox, PS3... : un programme à part lance le jeu.
                     if (game.system->external())
@@ -226,6 +227,12 @@ bool App::init()
     m_input.openConnected();
     m_session.setNickname(m_settings.nickname);
     m_bios.refresh();
+    // Les cores installés : une nouvelle version ? (au plus une fois par jour,
+    // en arrière-plan ; pas pendant les tests automatiques, sauf EMU_TEST_CORE_UPDATE).
+    const bool automatedTest = m_options.maxFrames > 0 || !m_options.netTestHost.empty() || !m_options.netTestJoin.empty();
+    m_voice.setMicAllowed(!automatedTest);
+    if (m_settings.coreAutoUpdate && (!automatedTest || SDL_getenv("EMU_TEST_CORE_UPDATE")))
+        m_coreUpdater.check(SDL_getenv("EMU_TEST_CORE_UPDATE") != nullptr);
 
     // Taille de la fenêtre : celle des maquettes (1440 x 900), agrandie selon
     // l'échelle de l'écran, sans dépasser 90 % de la place disponible.
@@ -302,6 +309,8 @@ bool App::init()
         SDL_Log("TEST SYSTÈME : %s",
                 external::importSystemFiles(system->id, m_library.externalPath(*system), dir("bios"), files).c_str());
     }
+    if (m_options.libraryView >= 0)
+        m_settings.libraryView = m_options.libraryView;
     if (m_options.settingsTab >= 0)
         m_nav.settingsTab = m_options.settingsTab;
     if (m_options.testPlay && !m_library.games().empty())
@@ -340,6 +349,7 @@ int App::run()
         for (const DialogResult& result : m_dialogs.poll())
             m_shell.onDialogResult(m_context, result);
         updateNetwork();
+        updateServices();
         // Où est l'image du jeu : la souris y sert de pointeur (Wiimote).
         m_input.setGameRect(m_video.gameRect()[0], m_video.gameRect()[1], m_video.gameRect()[2], m_video.gameRect()[3]);
 
@@ -585,12 +595,16 @@ void App::drawUi()
             drawNetplayOverlay();
         if (m_link.active())
             drawLinkOverlay();
+        if (m_netplay.active() || m_link.active())
+            drawOnlineStats();
         if (m_menuOpen && m_controlsOpen) {
             drawControlsScreen();
         } else if (m_menuOpen)
         {
             bool volumeChanged = false;
-            handlePauseAction(m_pauseMenu.draw(m_gameTitle, m_systemName, m_settings.volume, volumeChanged));
+                const ui::OnlineMenu online{m_netplay.active() || m_link.active(), m_settings.voiceMode != 0,
+                                        m_voice.selfMuted(), m_settings.netStats};
+            handlePauseAction(m_pauseMenu.draw(m_gameTitle, m_systemName, m_settings.volume, volumeChanged, online));
             if (volumeChanged) {
                 m_audio.setVolume(m_settings.volume);
                 m_settings.save(dir("settings.ini"));
@@ -912,6 +926,62 @@ void App::updateSalonGame()
         m_session.setLocalStatus(sameTitle ? GameStatus::Different : GameStatus::Missing);
 }
 
+void App::updateServices()
+{
+    // Chat vocal. La touche "appuyer pour parler" ne compte pas pendant la
+    // saisie d'un texte (un message du salon qui contient un "t"...).
+    const bool* keys = SDL_GetKeyboardState(nullptr);
+    const int key = m_settings.voiceKey;
+    const bool talkKey = key > 0 && key < SDL_SCANCODE_COUNT && keys[key] && !ImGui::GetIO().WantTextInput;
+    m_voice.update(m_session, m_settings, talkKey);
+
+    // Mise à jour des cores (jamais celui du jeu en cours).
+    m_coreUpdater.update(m_installer, m_coreInUse);
+    for (const std::string& message : m_coreUpdater.takeMessages())
+        m_ui.notify(message);
+
+    // Discord.
+    m_discord.configure(m_settings.discordPresence,
+                        m_settings.discordAppId.empty() ? std::string(kDiscordAppId) : m_settings.discordAppId);
+    m_discord.set(discordActivity());
+}
+
+DiscordPresence::Activity App::discordActivity() const
+{
+    // [C++] lang::tr renvoie la traduction (dans la langue de l'interface) :
+    // Discord affiche le texte tel quel, sans passer par notre dessin.
+    auto tr = [](const std::string& text) { return std::string(lang::tr(text)); };
+    DiscordPresence::Activity a;
+    const int players = static_cast<int>(m_session.members().size());
+    const std::string playersText = tr(std::to_string(players) + (players > 1 ? " joueurs" : " joueur"));
+    std::string online;
+    if (m_netplay.active() || m_link.active())
+        online = " · " + tr("En ligne") + " (" + playersText + ")";
+    auto describe = [&](const fs::path& rom, const std::string& title, const std::string& system, long long start) {
+        a.details = title;
+        a.state = system + online;
+        a.startTime = start;
+        a.imageText = system;
+        if (const scrape::GameInfo* info = m_scraper.find(rom))
+            a.image = scrape::boxartUrl(*info);
+    };
+    if (m_mode == Mode::Playing && m_core) {
+        describe(m_romPath, m_gameTitle, m_systemName, m_playStart);
+    } else if (m_external) {
+        const Game* game = m_library.find(m_externalGame);
+        describe(m_externalGame, game ? game->title : toUtf8(m_externalGame.stem()), game ? game->system->name : "",
+                 m_externalStart);
+    } else if (m_session.inSalon()) {
+        a.details = tr("Dans un salon en ligne");
+        a.state = playersText;
+    } else {
+        const size_t games = m_library.games().size();
+        a.details = tr("Dans la bibliothèque");
+        a.state = tr(std::to_string(games) + (games > 1 ? " jeux" : " jeu"));
+    }
+    return a;
+}
+
 void App::updateNetTest(const net::Session::Event* event)
 {
     using Type = net::Session::Event::Type;
@@ -1199,6 +1269,58 @@ void App::drawLinkOverlay()
                badge);
 }
 
+// Sous le badge "En ligne" : qui parle, et (si demandé) le ping et les
+// pertes de chacun.
+void App::drawOnlineStats()
+{
+    using theme::px;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    float y = vp->Pos.y + px(54.0f);
+    for (const net::Member& m : m_session.members()) {
+        if (m.self)
+            continue;
+        const bool talking = m_voice.talking(m.id);
+        if (!m_settings.netStats && !talking)
+            continue;
+        std::string line = m.name;
+        if (m_settings.netStats) {
+            line += "  ·  " + (m.pingMs >= 0 ? std::to_string(m.pingMs) + " ms" : std::string("…"));
+            if (m.lossPct >= 0)
+                line += "  ·  " + std::to_string(m.lossPct) + " % " + std::string(lang::tr("de pertes"));
+        }
+        ImU32 dot = theme::rgb(0x9CA3AF);
+        switch (net::qualityOf(m.pingMs, m.lossPct)) {
+        case net::LinkQuality::Excellent:
+        case net::LinkQuality::Good: dot = theme::rgb(0x34D399); break;
+        case net::LinkQuality::Fair: dot = theme::rgb(0xFBBF24); break;
+        case net::LinkQuality::Poor: dot = theme::rgb(0xF87171); break;
+        case net::LinkQuality::Unknown: break;
+        }
+        const ImVec2 ts = draw::measure(theme::Weight::Bold, 12.0f, line);
+        const float iconW = talking ? px(20.0f) : 0.0f;
+        const float w = ts.x + iconW + px(36.0f);
+        const ImVec2 min(vp->Pos.x + vp->Size.x - w - px(16.0f), y);
+        draw::rect(dl, min, ImVec2(min.x + w, min.y + px(26.0f)), theme::withAlpha(theme::Ink, talking ? 220 : 170), px(13.0f));
+        dl->AddCircleFilled(ImVec2(min.x + px(13.0f), min.y + px(13.0f)), px(4.0f), m_settings.netStats ? dot : theme::rgb(0x34D399));
+        if (talking)
+            draw::icon(dl, draw::Icon::Mic, ImVec2(min.x + px(22.0f), min.y + px(5.0f)), px(16.0f), theme::rgb(0x34D399));
+        draw::text(dl, ImVec2(min.x + px(24.0f) + iconW, min.y + (px(26.0f) - ts.y) / 2), theme::Weight::Bold, 12.0f,
+                   theme::Surface, line);
+        y += px(32.0f);
+    }
+    // Son propre micro coupé : un rappel discret.
+    if (m_voice.selfMuted() && m_settings.voiceMode != 0) {
+        const std::string muted(lang::tr("Micro coupé"));
+        const ImVec2 ts = draw::measure(theme::Weight::Bold, 12.0f, muted);
+        const ImVec2 min(vp->Pos.x + vp->Size.x - ts.x - px(56.0f), y);
+        draw::rect(dl, min, ImVec2(min.x + ts.x + px(40.0f), min.y + px(26.0f)), theme::withAlpha(theme::Ink, 170), px(13.0f));
+        draw::icon(dl, draw::Icon::MicOff, ImVec2(min.x + px(9.0f), min.y + px(5.0f)), px(16.0f), theme::rgb(0xF87171));
+        draw::text(dl, ImVec2(min.x + px(30.0f), min.y + (px(26.0f) - ts.y) / 2), theme::Weight::Bold, 12.0f, theme::Surface,
+                   muted);
+    }
+}
+
 bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::path& state, bool netplay, bool keepSave)
 {
     closeGame();
@@ -1326,6 +1448,7 @@ bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::pa
 
     // Historique : date de la partie (le temps de jeu est compté à la fin).
     m_playStart = now();
+    m_coreInUse = toUtf8(corePath.filename());
     if (!romPath.empty()) {
         m_userData.record(romPath).lastPlayed = m_playStart;
         m_userData.save();
@@ -1372,6 +1495,7 @@ void App::closeGame()
         m_userData.save();
     }
     m_core.reset();
+    m_coreInUse.clear();
     m_audio.clear();
     m_mode = Mode::Interface;
     m_menuOpen = false;
@@ -1461,8 +1585,10 @@ void App::updateExternal()
     // le programme, comme s'il avait été choisi dans Paramètres.
     if (const std::optional<ExternalInstaller::Result> installed = m_installer.takeResult();
         installed && installed->systemId.starts_with("core:")) {
-        // Un core libretro : il est dans cores/, le jeu peut se lancer.
-        m_ui.notify(installed->systemId.substr(5) + " " + installed->message);
+        // Un core libretro : il est dans cores/, le jeu peut se lancer. (Les
+        // mises à jour automatiques sont annoncées toutes ensemble à la fin.)
+        if (!m_coreUpdater.onInstalled(installed->systemId.substr(5), installed->ok))
+            m_ui.notify(installed->systemId.substr(5) + " " + installed->message);
     } else if (installed && installed->systemId.starts_with("files:")) {
         // Fichiers système d'un core (Dolphin) : l'écran BIOS les voit tout de suite.
         m_bios.refresh();
@@ -1572,6 +1698,14 @@ void App::handlePauseAction(ui::PauseAction action)
     case PauseAction::Fullscreen: m_video.toggleFullscreen(); break;
     case PauseAction::Library: m_pendingReturn = true; break;
     case PauseAction::Quit: m_running = false; break;
+    case PauseAction::ToggleMic:
+        m_voice.setSelfMuted(!m_voice.selfMuted());
+        m_ui.notify(m_voice.selfMuted() ? "Micro coupé" : "Micro réactivé");
+        break;
+    case PauseAction::ToggleNetStats:
+        m_settings.netStats = !m_settings.netStats;
+        m_settings.save(dir("settings.ini"));
+        break;
     }
 }
 

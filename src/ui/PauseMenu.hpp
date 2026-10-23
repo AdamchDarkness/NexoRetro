@@ -7,7 +7,16 @@
 
 namespace ui {
 
-enum class PauseAction { None, Resume, SaveState, LoadState, Reset, Screenshot, Fullscreen, Controls, Library, Quit };
+enum class PauseAction { None, Resume, SaveState, LoadState, Reset, Screenshot, Fullscreen, Controls, Library, Quit,
+                         ToggleMic, ToggleNetStats };
+
+// Ce que le menu montre en plus pendant une partie en ligne.
+struct OnlineMenu {
+    bool online = false;    // partie en ligne en cours
+    bool voice = false;     // chat vocal activé (micro ouvert ou appuyer pour parler)
+    bool micMuted = false;
+    bool netStats = false;  // ping et pertes affichés à l'écran
+};
 
 // Une ligne de l'écran "Commandes" : une action de la console émulée.
 struct ControlRow {
@@ -28,7 +37,8 @@ public:
     // À appeler quand le menu s'ouvre, pour placer le curseur sur "Reprendre".
     void open() { m_justOpened = true; }
     // volume : modifiable par la barre du menu ; renvoyé dans *volumeChanged.
-    PauseAction draw(const std::string& gameTitle, const std::string& systemName, int& volume, bool& volumeChanged);
+    PauseAction draw(const std::string& gameTitle, const std::string& systemName, int& volume, bool& volumeChanged,
+                     const OnlineMenu& online = {});
     // L'écran "Commandes" : pour chaque action de la console, le bouton de
     // la manette qui la déclenche (table : [bouton du core] = bouton de la manette).
     ControlsResult drawControls(const std::string& subtitle, const std::vector<ControlRow>& rows,
