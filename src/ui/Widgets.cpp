@@ -23,11 +23,11 @@ Colors colorsFor(ButtonStyle style)
 {
     switch (style) {
     case ButtonStyle::Primary: return {theme::Ink, theme::InkHover, theme::Surface, 0};
-    case ButtonStyle::Accent: return {theme::Accent, theme::AccentHover, theme::Surface, 0};
+    case ButtonStyle::Accent: return {theme::Accent, theme::AccentHover, theme::OnAccent, 0};
     case ButtonStyle::Outline: return {theme::Surface, theme::SurfaceAlt, theme::Ink, theme::Hairline};
     case ButtonStyle::Soft: return {theme::Ground, theme::NeutralSoft, theme::Ink, 0};
     case ButtonStyle::Ghost: return {0, theme::withAlpha(theme::Ink, 12), theme::Muted, 0};
-    case ButtonStyle::Danger: return {theme::Danger, IM_COL32(0x86, 0x1A, 0x15, 255), theme::Surface, 0};
+    case ButtonStyle::Danger: return {theme::Danger, theme::mix(theme::Danger, IM_COL32_BLACK, 0.18f), theme::OnAccent, 0};
     }
     return {};
 }
@@ -201,7 +201,7 @@ bool slider(const char* id, int* value, int minValue, int maxValue, float width,
     draw::rect(dl, ImVec2(left, cy - px(3.0f)), ImVec2(right, cy + px(3.0f)), theme::Track, px(3.0f));
     draw::rect(dl, ImVec2(left, cy - px(3.0f)), ImVec2(x, cy + px(3.0f)), theme::Accent, px(3.0f));
     draw::shadow(dl, ImVec2(x - knob / 2, cy - knob / 2), ImVec2(x + knob / 2, cy + knob / 2), knob / 2, px(2.0f), px(1.0f), 60);
-    dl->AddCircleFilled(ImVec2(x, cy), knob / 2, theme::Surface);
+    dl->AddCircleFilled(ImVec2(x, cy), knob / 2, theme::isDark() ? theme::Ink : theme::Surface); // (clair sur un thème sombre)
     dl->AddCircle(ImVec2(x, cy), knob / 2, (active || hovered) ? theme::Accent : theme::Hairline, 0, px(1.5f));
     // La valeur, à droite de la barre.
     if (suffix) {
@@ -240,7 +240,9 @@ bool toggle(const char* id, bool* value, bool disabled)
     const float knob = px(22.0f);
     const float x = min.x + px(3.0f) + (max.x - min.x - knob - px(6.0f)) * t;
     draw::shadow(dl, ImVec2(x, min.y + px(3.0f)), ImVec2(x + knob, min.y + px(3.0f) + knob), knob / 2, px(2.0f), px(1.0f), 60);
-    dl->AddCircleFilled(ImVec2(x + knob / 2, min.y + px(3.0f) + knob / 2), knob / 2, theme::Surface);
+    // (Le rond reste clair sur un thème sombre.)
+    dl->AddCircleFilled(ImVec2(x + knob / 2, min.y + px(3.0f) + knob / 2), knob / 2,
+                        theme::isDark() ? theme::Ink : theme::Surface);
     return clicked && !disabled;
 }
 
@@ -364,7 +366,7 @@ void toneColors(Tone tone, ImU32& bg, ImU32& fg)
     case Tone::Warning: bg = theme::WarningSoft; fg = theme::Warning; break;
     case Tone::Danger: bg = theme::DangerSoft; fg = theme::Danger; break;
     case Tone::Neutral: bg = theme::NeutralSoft; fg = theme::Muted; break;
-    case Tone::Accent: bg = theme::AccentSoft; fg = theme::rgb(0x1E2A78); break;
+    case Tone::Accent: bg = theme::AccentSoft; fg = theme::AccentInk; break;
     case Tone::Info: bg = theme::Ground; fg = theme::Muted; break;
     case Tone::Light: bg = theme::Surface; fg = theme::Muted; break;
     }

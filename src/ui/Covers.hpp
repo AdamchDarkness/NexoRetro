@@ -35,11 +35,19 @@ public:
     // titleSize : taille du titre en pixels de design (0 = pas de titre).
     void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, const Game& game, const UserData& userData, float rounding,
               float titleSize) const;
+    // Seulement une VRAIE image (choisie à la main ou trouvée en ligne) :
+    // renvoie false s'il n'y en a pas (rien n'est dessiné). Pour les vues qui
+    // dessinent elles-mêmes la jaquette générée (CD...).
+    bool drawArt(ImDrawList* dl, ImVec2 min, ImVec2 max, const Game& game, const UserData& userData,
+                 float rounding) const;
     // Dessine une image quelconque (jaquette proposée, capture d'écran...)
     // en remplissant le rectangle. Renvoie false si elle n'est pas (encore) chargée.
-    bool drawImage(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::string& file, float rounding) const;
+    // maxSize : taille maximale gardée en mémoire (plus pour un fond d'écran).
+    bool drawImage(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::string& file, float rounding,
+                   int maxSize = 720) const;
 
-    // Couleur de la jaquette générée (différente pour chaque titre).
+    // Couleur de la jaquette générée (différente pour chaque titre, prise
+    // parmi celles du thème).
     static ImU32 colorFor(const Game& game);
 
     // Les textures appartiennent au contexte OpenGL : il faut les libérer
@@ -53,7 +61,7 @@ private:
         int height = 0;
         bool failed = false;
     };
-    const Texture* texture(const std::string& file) const;
+    const Texture* texture(const std::string& file, int maxSize) const;
 
     // "mutable" : le cache peut se remplir pendant draw(), qui est const
     // (dessiner ne change pas la liste des jaquettes, seulement le cache).

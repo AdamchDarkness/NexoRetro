@@ -6,6 +6,7 @@
 #include "../Trash.hpp"
 #include "../Utf8.hpp"
 #include "Screens.hpp"
+#include "Themes.hpp"
 #include "Widgets.hpp"
 
 #include <SDL3/SDL.h>
@@ -65,6 +66,9 @@ void Shell::draw(UiContext& ctx)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::Begin("##app", nullptr, flags);
     ImGui::PopStyleVar();
+    // Le fond du thème (uni, dégradé ou image), sous tout le reste.
+    theme::drawBackground(ImGui::GetWindowDrawList(), viewport->Pos,
+                          ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y), ctx.covers);
 
     drawTopBar(ctx);
 
@@ -153,7 +157,7 @@ void Shell::drawTopBar(UiContext& ctx)
                 ImGui::SetCursorScreenPos(at);
                 if (ImGui::InvisibleButton("##appUpdate", size)) {
                     ctx.nav.go(Screen::Settings);
-                    ctx.nav.settingsTab = 10; // l'onglet "Mises à jour"
+                    ctx.nav.settingsTab = 11; // l'onglet "Mises à jour"
                 }
                 const bool hovered = ImGui::IsItemHovered();
                 draw::rect(dl, at, ImVec2(at.x + size.x, at.y + size.y), hovered ? theme::Accent : theme::AccentSoft,
@@ -231,6 +235,45 @@ void Shell::onDialogResult(UiContext& ctx, const DialogResult& result)
         ctx.userData.record(game->path).cover = toUtf8(target);
         ctx.userData.save();
         ctx.notify("Jaquette mise à jour");
+        break;
+    }
+    case DialogPurpose::ChooseBackground: {
+        // L'image de fond est copiée dans themes/ (comme une jaquette : elle
+        // reste là même si l'originale est déplacée).
+        std::error_code ec;
+        const fs::path source = result.paths.front();
+        const fs::path dir = theme::themesDir();
+        fs::create_directories(dir, ec);
+        const std::string name = "fond-" + std::to_string(std::time(nullptr)) + toUtf8(source.extension());
+        fs::copy_file(source, dir / fromUtf8(name), fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            ctx.notify("Impossible de copier l'image : " + ec.message());
+            break;
+        }
+        ctx.settings.backgroundImage = name;
+        ctx.settings.background = 3;
+        ctx.settingsChanged();
+        ctx.notify("Fond d'écran mis à jour");
+        break;
+    }
+    case DialogPurpose::ChooseFont: {
+        // La police est copiée dans themes/fonts/, puis rechargée.
+        const fs::path source = result.paths.front();
+        if (!theme::isFontFile(source)) {
+            ctx.notify("Ce fichier n'est pas une police TrueType ou OpenType");
+            break;
+        }
+        std::error_code ec;
+        const fs::path dir = theme::themesDir() / "fonts";
+        fs::create_directories(dir, ec);
+        fs::copy_file(source, dir / source.filename(), fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            ctx.notify("Impossible de copier la police : " + ec.message());
+            break;
+        }
+        ctx.settings.uiFont = "fonts/" + toUtf8(source.filename());
+        ctx.settingsChanged();
+        ctx.notify("Police : " + toUtf8(source.stem()));
         break;
     }
     case DialogPurpose::ChooseExternal: {

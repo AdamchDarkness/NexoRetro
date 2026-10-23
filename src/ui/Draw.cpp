@@ -372,6 +372,33 @@ void icon(ImDrawList* dl, Icon which, ImVec2 topLeft, float size, ImU32 color)
         polyline(dl, g, {{4, 7}, {2.5f, 7}, {2.5f, 17}, {4, 17}}, color, t);
         polyline(dl, g, {{20, 7}, {21.5f, 7}, {21.5f, 17}, {20, 17}}, color, t);
         break;
+    case Icon::ChevronDown:
+        polyline(dl, g, {{6, 9}, {12, 15}, {18, 9}}, color, t * 1.1f);
+        break;
+    case Icon::Box:
+        // Une boîte de jeu vue de biais : la tranche à gauche, la face à droite.
+        polyline(dl, g, {{4, 6}, {8, 3.5f}, {8, 20.5f}, {4, 18}}, color, t, true);
+        dl->AddRect(g(8, 3.5f), g(20, 20.5f), color, 1.5f * g.unit, 0, t);
+        break;
+    case Icon::Cartridge:
+        // Une cartouche : coin coupé en haut à droite, étiquette, encoche en bas.
+        polyline(dl, g, {{5, 3}, {16, 3}, {19, 6}, {19, 21}, {5, 21}}, color, t, true);
+        dl->AddRect(g(7.5f, 8), g(16.5f, 16), color, 1.0f * g.unit, 0, t);
+        dl->AddLine(g(9, 18.5f), g(15, 18.5f), color, t);
+        break;
+    case Icon::Disc:
+        dl->AddCircle(g(12, 12), 9 * g.unit, color, 32, t);
+        dl->AddCircle(g(12, 12), 2.5f * g.unit, color, 16, t);
+        arc(dl, g, 12, 12, 5.5f, 200, 260, color, t);
+        break;
+    case Icon::Palette:
+        // Une palette de peintre : un rond, trois taches de couleur.
+        arc(dl, g, 12, 12, 9, 60, 330, color, t);
+        polyline(dl, g, {{19.8f, 7.5f}, {16, 13}, {20, 16.5f}}, color, t);
+        dl->AddCircleFilled(g(8, 9), 1.4f * g.unit, color);
+        dl->AddCircleFilled(g(12.5f, 7), 1.4f * g.unit, color);
+        dl->AddCircleFilled(g(8, 14.5f), 1.4f * g.unit, color);
+        break;
     }
 }
 

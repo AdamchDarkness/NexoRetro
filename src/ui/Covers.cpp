@@ -4,6 +4,7 @@
 #include "../scrape/Scraper.hpp"
 #include "Draw.hpp"
 #include "Theme.hpp"
+#include "Themes.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
@@ -22,13 +23,6 @@
 
 using theme::px;
 
-namespace {
-// Les teintes profondes des maquettes : chaque jeu en reçoit une, toujours
-// la même (calculée à partir de son titre).
-constexpr unsigned kPalette[] = {0x1E2A78, 0x8C1D2E, 0x1F7A47, 0xB3400B, 0x4C3FB8, 0x0F766E, 0x9F1239,
-                                 0x6D28D9, 0x2563A8, 0xB91C1C, 0x334155, 0x0E7490, 0x7C2D12, 0x3F4A5A};
-} // namespace
-
 Covers::~Covers()
 {
     // Le contexte OpenGL a déjà pu disparaître : on ne touche plus aux
@@ -38,7 +32,7 @@ Covers::~Covers()
 ImU32 Covers::colorFor(const Game& game)
 {
     const size_t hash = std::hash<std::string>{}(game.title);
-    return theme::rgb(kPalette[hash % std::size(kPalette)]);
+    return theme::coverColor(hash);
 }
 
 void Covers::releaseTextures()
@@ -53,13 +47,11 @@ void Covers::releaseTextures()
 namespace {
 
 // Les jaquettes en ligne font jusqu'à 1500 pixels de haut : 9 Mo de
-// mémoire vidéo chacune. On les réduit à kMaxSize pixels au plus, en
-// faisant la moyenne de chaque bloc de pixels (factor x factor).
-constexpr int kMaxSize = 720;
-
-unsigned char* shrink(unsigned char* pixels, int& width, int& height)
+// mémoire vidéo chacune. On les réduit à maxSize pixels au plus (720 pour
+// une jaquette), en faisant la moyenne de chaque bloc de pixels (factor x factor).
+unsigned char* shrink(unsigned char* pixels, int& width, int& height, int maxSize)
 {
-    const int factor = (std::max(width, height) + kMaxSize - 1) / kMaxSize;
+    const int factor = (std::max(width, height) + maxSize - 1) / maxSize;
     if (factor <= 1)
         return pixels;
     const int w = width / factor;
@@ -90,7 +82,7 @@ unsigned char* shrink(unsigned char* pixels, int& width, int& height)
 
 } // namespace
 
-const Covers::Texture* Covers::texture(const std::string& file) const
+const Covers::Texture* Covers::texture(const std::string& file, int maxSize) const
 {
     auto it = m_textures.find(file);
     if (it != m_textures.end())
@@ -118,7 +110,7 @@ const Covers::Texture* Covers::texture(const std::string& file) const
         m_textures[file] = tex;
         return nullptr;
     }
-    pixels = shrink(pixels, tex.width, tex.height);
+    pixels = shrink(pixels, tex.width, tex.height, maxSize);
     glGenTextures(1, &tex.id);
     glBindTexture(GL_TEXTURE_2D, tex.id);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -133,9 +125,9 @@ const Covers::Texture* Covers::texture(const std::string& file) const
     return &(m_textures[file] = tex);
 }
 
-bool Covers::drawImage(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::string& file, float rounding) const
+bool Covers::drawImage(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::string& file, float rounding, int maxSize) const
 {
-    const Texture* tex = file.empty() ? nullptr : texture(file);
+    const Texture* tex = file.empty() ? nullptr : texture(file, maxSize);
     if (!tex)
         return false;
     // Remplissage "cover" : on recadre l'image pour remplir le rectangle
@@ -156,19 +148,28 @@ bool Covers::drawImage(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::string
     return true;
 }
 
-void Covers::draw(ImDrawList* dl, ImVec2 min, ImVec2 max, const Game& game, const UserData& userData, float rounding,
-                  float titleSize) const
+bool Covers::drawArt(ImDrawList* dl, ImVec2 min, ImVec2 max, const Game& game, const UserData& userData,
+                     float rounding) const
 {
     // 1. La jaquette choisie à la main.
     const GameRecord* record = userData.find(game.path);
     if (record && !record->cover.empty() && drawImage(dl, min, max, record->cover, rounding))
-        return;
+        return true;
     // 2. Celle trouvée en ligne.
     if (m_scraper) {
         const scrape::GameInfo* info = m_scraper->find(game.path);
         if (info && drawImage(dl, min, max, info->boxart, rounding))
-            return;
+            return true;
     }
+    return false;
+}
+
+void Covers::draw(ImDrawList* dl, ImVec2 min, ImVec2 max, const Game& game, const UserData& userData, float rounding,
+                  float titleSize) const
+{
+    // 1. et 2. : la jaquette choisie à la main, ou celle trouvée en ligne.
+    if (drawArt(dl, min, max, game, userData, rounding))
+        return;
     // 3. Sinon, la jaquette générée.
 
     draw::rect(dl, min, max, colorFor(game), rounding);
@@ -176,11 +177,11 @@ void Covers::draw(ImDrawList* dl, ImVec2 min, ImVec2 max, const Game& game, cons
         return;
     const float pad = std::max(px(8.0f), (max.x - min.x) * 0.085f);
     const float tagSize = std::max(9.0f, titleSize * 0.6f);
-    draw::text(dl, ImVec2(min.x + pad, min.y + pad), theme::Weight::Bold, tagSize, theme::withAlpha(theme::Surface, 215),
+    draw::text(dl, ImVec2(min.x + pad, min.y + pad), theme::Weight::Bold, tagSize, theme::withAlpha(theme::CoverInk, 215),
                game.system->shortName);
     // Le titre est collé en bas : on mesure sa hauteur avant de le placer.
     const float wrap = max.x - min.x - pad * 2;
     const float h = draw::wrappedHeight(theme::Weight::ExtraBold, titleSize, game.title, wrap);
-    draw::textWrapped(dl, ImVec2(min.x + pad, max.y - pad - h), theme::Weight::ExtraBold, titleSize, theme::Surface,
+    draw::textWrapped(dl, ImVec2(min.x + pad, max.y - pad - h), theme::Weight::ExtraBold, titleSize, theme::CoverInk,
                       game.title, wrap);
 }

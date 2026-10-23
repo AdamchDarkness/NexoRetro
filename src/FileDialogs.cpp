@@ -12,6 +12,13 @@ void FileDialogs::openFiles(SDL_Window* window, DialogPurpose purpose, bool imag
                            nullptr, multiple);
 }
 
+void FileDialogs::openFonts(SDL_Window* window, DialogPurpose purpose)
+{
+    static const SDL_DialogFileFilter fontFilter[] = {{"Polices", "ttf;otf"}};
+    auto* request = new Request{this, purpose};
+    SDL_ShowOpenFileDialog(&FileDialogs::onResult, request, window, fontFilter, 1, nullptr, false);
+}
+
 void FileDialogs::openFolder(SDL_Window* window, DialogPurpose purpose)
 {
     auto* request = new Request{this, purpose};

@@ -1,6 +1,7 @@
 #include "Ui.hpp"
 
 #include "Lang.hpp"
+#include "UiSounds.hpp"
 
 #include "ui/Draw.hpp"
 #include "ui/Theme.hpp"
@@ -93,6 +94,8 @@ void Ui::beginFrame()
 
 void Ui::endFrame()
 {
+    // Les sons de l'interface : clics, survols, navigation (voir UiSounds.hpp).
+    sounds::watchImGui();
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
@@ -100,6 +103,7 @@ void Ui::endFrame()
 void Ui::notify(std::string text)
 {
     SDL_Log("%s", text.c_str());
+    sounds::play(sounds::Event::Notify);
     m_notifications.push_back({std::move(text), SDL_GetTicks()});
 }
 

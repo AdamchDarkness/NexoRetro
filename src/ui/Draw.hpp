@@ -45,7 +45,8 @@ float wrappedHeight(theme::Weight weight, float size, std::string_view text, flo
 enum class Icon {
     None, Play, Plus, Search, Close, Check, ChevronLeft, ChevronRight, Folder, Upload,
     Chip, Image, Refresh, Users, Heart, HeartOutline, Gamepad, Copy, Pause, Pencil, Trash,
-    Mic, MicOff, Speaker, SpeakerOff, Grid, List, Carousel, Filter, Tv
+    Mic, MicOff, Speaker, SpeakerOff, Grid, List, Carousel, Filter, Tv,
+    ChevronDown, Box, Cartridge, Disc, Palette
 };
 void icon(ImDrawList* dl, Icon icon, ImVec2 topLeft, float size, ImU32 color);
 

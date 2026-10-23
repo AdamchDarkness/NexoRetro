@@ -32,7 +32,7 @@ void codeBox(const char* id, const std::string& code, float width)
     ImDrawList* dl = ImGui::GetWindowDrawList();
     draw::rect(dl, p, ImVec2(p.x + width, p.y + h), theme::AccentSoft, px(16.0f));
     const float copyW = px(110.0f);
-    draw::textEllipsis(dl, ImVec2(p.x + px(18.0f), p.y + px(21.0f)), Weight::ExtraBold, 15.0f, theme::rgb(0x1E2A78), code,
+    draw::textEllipsis(dl, ImVec2(p.x + px(18.0f), p.y + px(21.0f)), Weight::ExtraBold, 15.0f, theme::AccentInk, code,
                        width - copyW - px(36.0f));
     ImGui::SetCursorScreenPos(ImVec2(p.x + width - copyW - px(12.0f), p.y + px(12.0f)));
     if (button("Copier", {.style = ButtonStyle::Primary, .icon = draw::Icon::Copy, .height = 40.0f, .width = 110.0f}))
