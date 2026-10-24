@@ -172,6 +172,7 @@ add_executable(emulateur
     src/ui/FriendsScreen.cpp
     src/ui/SettingsScreen.cpp
     src/ui/SpeedrunScreen.cpp
+    src/ui/WelcomeScreen.cpp
     src/ui/PauseMenu.cpp
     src/ui/BigPictureScreen.cpp
 )

@@ -1161,6 +1161,14 @@ void SettingsScreen::drawUpdates(UiContext& ctx, float width)
     textWrapped("Les mises à jour viennent des versions officielles de Nexo Retro publiées sur GitHub. Chaque fichier "
                 "téléchargé est vérifié (empreinte SHA-256) avant d'être installé.",
                 13.0f, Weight::Medium, theme::Muted, width);
+    space(10.0f);
+    settingRow("Un problème ?", "Ouvre un rapport sur GitHub, avec la version et la fin du journal (sans votre nom d'utilisateur)",
+               width, px(200.0f), [&] {
+                   if (button("Signaler un problème", {.style = ButtonStyle::Outline, .icon = draw::Icon::Pencil, .height = 38.0f,
+                                                        .width = 200.0f, .fontSize = 13.0f}))
+                       reportProblem(ctx);
+                   return false;
+               });
 }
 
 void SettingsScreen::draw(UiContext& ctx)

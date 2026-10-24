@@ -55,7 +55,8 @@ struct Navigation {
     bool openDelete = false;        // fiche du jeu : ouvrir "Supprimer" (tests)
     bool openSave = false;          // ... "Sauvegarde du jeu" (tests)
     bool openCheats = false;        // ... "Codes de triche", onglet en ligne (tests)
-    bool openDuplicates = false;    // Paramètres : ouvrir "Doublons et versions" (tests)
+    bool openDuplicates = false;
+    int welcomeStep = -1;           // assistant : aller à cette étape (tests)    // Paramètres : ouvrir "Doublons et versions" (tests)
     std::string externalChoosing;   // console dont on choisit l'émulateur externe
     bool bigPicture = false;        // mode Big Picture (plein écran, à la manette)
     bool speedrunLaunch = false;    // le prochain jeu lancé l'est depuis l'écran Speedrun (chrono affiché)
@@ -150,6 +151,10 @@ std::filesystem::path cheatsFile(const UiContext& ctx, const Game& game);
 
 // Ouvre un dossier dans l'explorateur Windows.
 void openFolder(const std::filesystem::path& dir);
+// "Signaler un problème" : ouvre un rapport sur GitHub (issue pré-remplie
+// avec la version, la carte graphique et la fin du journal, sans le nom
+// d'utilisateur Windows) et copie le journal complet dans le presse-papiers.
+void reportProblem(UiContext& ctx);
 
 // --- Mise en forme -----------------------------------------------------
 std::string formatAgo(long long timestamp);   // "Il y a 2 h", "Hier"...
@@ -373,6 +378,17 @@ private:
     char m_search[64] = "";
 };
 
+// L'assistant du premier lancement (langue, jeux, émulateurs, BIOS).
+class WelcomeScreen {
+public:
+    void draw(UiContext& ctx);
+
+private:
+    void finish(UiContext& ctx);
+    int m_step = 0;
+    std::deque<std::string> m_coreQueue; // émulateurs à installer l'un après l'autre
+};
+
 // Big Picture : plein écran, sombre, grandes jaquettes, tout à la manette.
 class BigPictureScreen {
 public:
@@ -402,6 +418,7 @@ private:
     FriendsScreen m_friends;
     SettingsScreen m_settings;
     SpeedrunScreen m_speedrun;
+    WelcomeScreen m_welcome;
     BigPictureScreen m_bigPicture;
 };
 

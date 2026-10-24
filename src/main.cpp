@@ -154,6 +154,10 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
             out.testLss = fromUtf8(argv[++i]);
         else if (arg == "--test-srcom" && i + 1 < argc)
             out.testSrcom = argv[++i];
+        else if (arg == "--welcome")
+            out.welcome = true;
+        else if (arg == "--welcome-step" && i + 1 < argc)
+            out.welcomeStep = std::atoi(argv[++i]);
         else if (arg == "--slots")
             out.openSlots = true;
         else if (arg == "--net-night")

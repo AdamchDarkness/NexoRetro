@@ -2,6 +2,7 @@
 // tailles, titres de page, tuiles de jaquette.
 
 #include "../SaveFiles.hpp"
+#include "../net/Http.hpp"
 #include "../Utf8.hpp"
 #include "Screens.hpp"
 #include "Widgets.hpp"
@@ -9,9 +10,17 @@
 #include <SDL3/SDL.h>
 
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <ctime>
+#include <fstream>
+#include <sstream>
 #include <system_error>
+#include <vector>
+
+#ifndef NEXO_VERSION
+#define NEXO_VERSION "0.0.0"
+#endif
 
 namespace fs = std::filesystem;
 using theme::px;
@@ -84,6 +93,50 @@ void openFolder(const fs::path& dir)
     std::error_code ec;
     fs::create_directories(dir, ec);
     SDL_OpenURL(("file:///" + toUtf8(dir)).c_str());
+}
+
+void reportProblem(UiContext& ctx)
+{
+    // Le journal, sans le nom d'utilisateur (C:\Users\<nom> -> %USERPROFILE%).
+    std::ifstream in(ctx.dir("NexoRetro.log"), std::ios::binary);
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    std::string log = buffer.str();
+    if (const char* profile = SDL_getenv("USERPROFILE"); profile && *profile)
+        for (size_t p = log.find(profile); p != std::string::npos; p = log.find(profile, p))
+            log.replace(p, std::strlen(profile), "%USERPROFILE%");
+    std::vector<std::string> lines;
+    std::string gpu;
+    std::istringstream stream(log);
+    for (std::string line; std::getline(stream, line);) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        if (gpu.empty() && line.rfind("OpenGL ", 0) == 0)
+            gpu = line;
+        lines.push_back(line);
+    }
+    // Le rapport : les informations utiles, et la fin du journal (une adresse
+    // web a une longueur limitée : on garde les dernières lignes qui tiennent).
+    auto body = [&](size_t tail) {
+        std::string b = "**Version** : " NEXO_VERSION "\n**Système** : " + std::string(SDL_GetPlatform()) +
+                        "\n**Affichage** : " + (gpu.empty() ? std::string("?") : gpu) +
+                        "\n\n### Ce qui s'est passé\n(Décrivez le problème : ce que vous faisiez, le jeu, la console...)\n\n"
+                        "### Journal (fin de NexoRetro.log)\n```\n";
+        for (size_t i = lines.size() > tail ? lines.size() - tail : 0; i < lines.size(); ++i)
+            b += lines[i] + "\n";
+        return b + "```\n";
+    };
+    size_t tail = 60;
+    std::string encoded = net::urlEncode(body(tail));
+    while (encoded.size() > 6000 && tail > 5) {
+        tail -= 5;
+        encoded = net::urlEncode(body(tail));
+    }
+    const std::string url = "https://github.com/AdamchDarkness/NexoRetro/issues/new?title=" + net::urlEncode("[Bug] ") +
+                            "&body=" + encoded;
+    SDL_SetClipboardText(log.c_str());
+    SDL_OpenURL(url.c_str());
+    ctx.notify("Rapport ouvert sur GitHub ; le journal complet est copié (Ctrl+V pour l'ajouter)");
 }
 
 std::string formatAgo(long long timestamp)

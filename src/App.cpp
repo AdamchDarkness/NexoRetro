@@ -268,7 +268,12 @@ bool App::init()
     for (const char* name : {"bios", "saves", "cores", "roms", "covers", "themes"})
         fs::create_directories(dir(name), ec);
     m_userData.load();
+    // Tout premier démarrage (pas encore de réglages) : l'assistant s'affichera.
+    std::error_code firstEc;
+    const bool firstRun = !fs::exists(dir("settings.ini"), firstEc);
     m_settings.load(dir("settings.ini"));
+    if (firstRun || m_options.welcome)
+        m_settings.firstRunDone = false;
     m_speedrun.load();
     // Les thèmes (intégrés + fichiers themes/*.ini) et celui choisi : avant
     // de créer l'interface, pour charger tout de suite la bonne police.
@@ -395,6 +400,8 @@ bool App::init()
         SDL_Log("TEST BIBLIOTHÈQUE : %s", result.c_str());
     }
     m_nav.openDuplicates = m_options.testDuplicates;
+    if (m_options.welcome)
+        m_nav.welcomeStep = m_options.welcomeStep;
     if (m_options.testDuplicates)
         for (const library_tools::Duplicates& d : library_tools::findDuplicates(m_library.games())) {
             std::string names;

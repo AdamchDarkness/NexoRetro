@@ -14,6 +14,7 @@ struct Settings {
     int scaling = 0;      // 0 = pixels nets, 1 = lissé
     int aspect = 0;       // 0 = d'origine, 1 = 4:3, 2 = 16:9
     bool showFps = false;
+    bool firstRunDone = true; // l'assistant du premier lancement a été vu (faux au tout premier démarrage)
     int uiZoom = 100;     // taille du texte et de l'interface, en % (80 à 150)
     bool preferVulkan = false; // cores 3D qui savent faire les deux : Vulkan plutôt qu'OpenGL
     // Son

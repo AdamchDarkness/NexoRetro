@@ -69,7 +69,9 @@ struct AppOptions {
     bool netTestNight = false;
     std::filesystem::path testLss;     // --test-lss <fichier.lss> : import puis export LiveSplit (journal)
     std::string testSrcom;             // --test-srcom "<jeu>" : recherche speedrun.com (journal)
-    bool openSlots = false;            // --slots : ouvre les emplacements de sauvegarde (avec --menu)
+    bool openSlots = false;
+    bool welcome = false;              // --welcome : montrer l'assistant du premier lancement
+    int welcomeStep = 0;               // --welcome-step n : à cette étape (captures)            // --slots : ouvre les emplacements de sauvegarde (avec --menu)
     std::filesystem::path netTestRelay;     // --net-relay <fichier> : servir de relais, code écrit dans ce fichier
     std::filesystem::path netTestRelayCode; // --net-relay-code <fichier> : héberger par ce relais           // --net-night : soirée jeu de test (hôte)
     bool testDuplicates = false;         // --test-duplicates : affiche les doublons dans le journal

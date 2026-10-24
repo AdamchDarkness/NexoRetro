@@ -93,6 +93,9 @@ void Shell::draw(UiContext& ctx)
     ImGui::EndChild();
 
     ImGui::End();
+    // Premier lancement : l'assistant, par-dessus tout le reste.
+    if (!ctx.settings.firstRunDone)
+        m_welcome.draw(ctx);
 }
 
 void Shell::drawTopBar(UiContext& ctx)
