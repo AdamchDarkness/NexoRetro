@@ -550,6 +550,12 @@ int App::run()
                             m_core->netpacketReceive(r.data, r.from);
                         m_core->netpacketPoll();
                     }
+                    // EMU_TEST_SLOWFRAME="période,ms" (tests) : une image sur "période"
+                    // prend "ms" de plus, comme une console lourde (PS2) qui rame par moments.
+                    if (const char* slow = SDL_getenv("EMU_TEST_SLOWFRAME"); slow && SDL_atoi(slow) > 0 &&
+                                                                             m_gameLoops % SDL_atoi(slow) == 0)
+                        if (const char* comma = SDL_strchr(slow, ','))
+                            SDL_Delay(static_cast<Uint32>(SDL_atoi(comma + 1)));
                     m_core->runFrame();
                     // Reprise d'une partie : l'état est rechargé après quelques images
                     // (le temps que le core ait vraiment démarré sa machine).
@@ -569,10 +575,9 @@ int App::run()
                     if (cable)
                         for (const Core::NetPacket& p : m_core->takeNetpackets())
                             m_link.send(m_session, p.to, p.data);
-                    // Si trop de son s'accumule (avance rapide, ralentissement...), on
-                    // vide la file pour ne pas entendre le jeu avec du retard.
-                    if (m_audio.queuedSeconds() > m_settings.maxAudioQueue())
-                        m_audio.clear();
+                    // Le son garde le rythme (voir Audio::regulate : vitesse ajustée
+                    // en douceur au lieu de vider la file).
+                    m_audio.regulate();
                     ++m_fpsFrames;
                     ++m_emuFrames;
                     captureRewind();
@@ -1026,9 +1031,7 @@ void App::runNetplayFrames()
         },
         [this] { return m_core->memoryFingerprint(); }};
     m_fpsFrames += m_netplay.tick(m_session, emulator, local);
-
-    if (m_audio.queuedSeconds() > m_settings.maxAudioQueue())
-        m_audio.clear();
+    m_audio.regulate();
 }
 
 Input::PadState App::scriptedInput() const
@@ -1880,6 +1883,7 @@ void App::applySettings()
     m_video.setSmooth(m_settings.scaling == 1);
     const float aspects[] = {0.0f, 4.0f / 3.0f, 16.0f / 9.0f};
     m_video.setAspectOverride(aspects[std::clamp(m_settings.aspect, 0, 2)]);
+    m_audio.setTargetLatency(m_settings.maxAudioQueue());
     m_input.setKeyboardSeparate(m_settings.keyboardSeparate);
     m_audio.setVolume(m_settings.volume);
     // L'apparence : thème, couleurs, fond, police (rechargée par Ui::beginFrame).

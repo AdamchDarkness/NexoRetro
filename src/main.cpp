@@ -21,6 +21,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <shlobj.h> // SHGetKnownFolderPath : les dossiers spéciaux de Windows
+#include <share.h>  // _SH_DENYWR
 #endif
 
 namespace {
@@ -247,8 +248,9 @@ void startLogFile(const fs::path& dataDir)
     std::error_code ec;
     fs::create_directories(dataDir, ec);
 #ifdef _WIN32
-    if (_wfopen_s(&g_logFile, (dataDir / "NexoRetro.log").c_str(), L"w") != 0)
-        g_logFile = nullptr;
+    // _wfsopen + _SH_DENYWR : les autres programmes (Bloc-notes, "Signaler un
+    // problème") peuvent LIRE le journal pendant que l'appli l'écrit.
+    g_logFile = _wfsopen((dataDir / "NexoRetro.log").c_str(), L"w", _SH_DENYWR);
 #else
     g_logFile = std::fopen((dataDir / "NexoRetro.log").c_str(), "w");
 #endif

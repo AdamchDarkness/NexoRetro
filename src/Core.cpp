@@ -240,6 +240,8 @@ bool Core::loadGame(const std::filesystem::path& romPath)
 void Core::runFrame()
 {
     // Le core dessine dans son propre contexte OpenGL (voir Video::beginCore).
+    if (m_audioStatus)
+        m_audioStatus(true, m_audio.occupancy(), m_audio.underrunLikely());
     m_video.beginCore();
     m_api.run();
     m_video.endCore();
@@ -571,6 +573,21 @@ bool Core::onEnvironment(unsigned cmd, void* data)
             return false;
         }
         var->value = it->second.c_str(); // la chaîne vit dans m_options : le pointeur reste valable
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK: {
+        // Le core veut savoir si le son prend du retard (pour sauter le
+        // dessin d'une image et rattraper, au lieu de faire grésiller le son).
+        const auto* cb = static_cast<const retro_audio_buffer_status_callback*>(data);
+        self.m_audioStatus = cb ? cb->callback : nullptr;
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY: {
+        // Le core a besoin d'au moins ce tampon (en ms) pour un son fluide.
+        const unsigned ms = data ? *static_cast<const unsigned*>(data) : 0;
+        self.m_audio.setMinimumLatency(ms / 1000.0);
+        if (ms > 0)
+            SDL_Log("Son : le core demande un tampon d'au moins %u ms", ms);
         return true;
     }
     case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:

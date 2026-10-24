@@ -239,6 +239,7 @@ private:
 
     Video& m_video;
     Audio& m_audio;
+    retro_audio_buffer_status_callback_t m_audioStatus = nullptr; // (voir SET_AUDIO_BUFFER_STATUS_CALLBACK)
     Input& m_input;
 
     SDL_SharedObject* m_handle = nullptr;

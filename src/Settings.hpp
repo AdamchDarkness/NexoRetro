@@ -93,7 +93,8 @@ struct Settings {
     void load(const std::filesystem::path& file);
     void save(const std::filesystem::path& file) const;
 
-    // Durée de son maximale en attente, selon la latence choisie.
+    // Le tampon de son visé, selon la latence choisie (la file est régulée
+    // autour de lui, voir Audio::regulate).
     double maxAudioQueue() const;
 
     // Contrôle parental : un nouveau jour remet le compteur à zéro.

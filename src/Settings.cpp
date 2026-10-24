@@ -186,8 +186,8 @@ std::string Settings::pinHash(const std::string& pin)
 double Settings::maxAudioQueue() const
 {
     switch (audioLatency) {
-    case 0: return 0.08;
-    case 2: return 0.35;
-    default: return 0.2;
+    case 0: return 0.05;
+    case 2: return 0.15;
+    default: return 0.08;
     }
 }
