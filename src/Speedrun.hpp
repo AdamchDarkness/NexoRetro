@@ -45,6 +45,10 @@ struct Category {
     int attempts = 0;
     int finished = 0;
     std::vector<Run> history;      // les plus anciennes d'abord
+    // Catégorie officielle de speedrun.com (vide sinon) : son record du monde.
+    long long worldRecord = -1;
+    std::string worldRecordBy;
+    std::string officialLink;      // la page du classement
 
     long long pb() const { return segments.empty() ? -1 : segments.back().pbSplit; }
     // Somme des meilleurs segments (-1 si l'un d'eux n'a jamais été fait).
@@ -139,5 +143,16 @@ private:
     bool m_started = false;
     bool m_ended = false;
 };
+
+} // namespace speedrun
+
+namespace speedrun {
+
+// --- LiveSplit (.lss) --------------------------------------------------------
+// Le format de LiveSplit, le chrono le plus utilisé par les speedrunners (un
+// fichier XML). On en lit les splits, le record (temps de passage
+// "Personal Best"), les meilleurs segments et le nombre d'essais.
+bool importLss(const std::filesystem::path& file, Category& out, std::string& gameName, std::string& error);
+bool exportLss(const std::filesystem::path& file, const Category& category, const std::string& gameName);
 
 } // namespace speedrun

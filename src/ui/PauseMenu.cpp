@@ -50,6 +50,7 @@ PauseAction PauseMenu::draw(const std::string& gameTitle, const std::string& sys
         ImGui::SetItemDefaultFocus();
     item("Sauvegarder l'état (F2)", PauseAction::SaveState, ButtonStyle::Soft, draw::Icon::None);
     item("Charger l'état (F4)", PauseAction::LoadState, ButtonStyle::Soft, draw::Icon::None);
+    item("Emplacements de sauvegarde", PauseAction::Slots, ButtonStyle::Soft, draw::Icon::Grid);
     item("Redémarrer (F8)", PauseAction::Reset, ButtonStyle::Soft, draw::Icon::Refresh);
     item("Capture d'écran (F12)", PauseAction::Screenshot, ButtonStyle::Soft, draw::Icon::Image);
     item("Plein écran (F11)", PauseAction::Fullscreen, ButtonStyle::Soft, draw::Icon::None);

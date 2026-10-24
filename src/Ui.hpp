@@ -40,6 +40,8 @@ public:
     // Petit message temporaire en haut à droite ("État sauvegardé").
     void notify(std::string text);
     void drawNotifications();
+    // Cachées pendant un enregistrement vidéo qui garde ce qui est à l'écran.
+    void setNotificationsHidden(bool hidden) { m_notificationsHidden = hidden; }
 
 private:
     struct Notification {
@@ -55,4 +57,5 @@ private:
     float m_wantedZoom = 1.0f;
     std::filesystem::path m_fontDir;
     std::vector<Notification> m_notifications;
+    bool m_notificationsHidden = false;
 };

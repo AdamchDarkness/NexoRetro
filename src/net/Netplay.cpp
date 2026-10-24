@@ -1,5 +1,7 @@
 #include "Netplay.hpp"
 
+#include "../StateDelta.hpp"
+
 #include "../Hash.hpp"
 #include "Bytes.hpp"
 
@@ -150,7 +152,9 @@ void Netplay::startRunning(uint8_t delay, uint8_t maxRollback)
         s.next = delay;
     }
     m_used.clear();
-    m_states.assign(static_cast<size_t>(maxRollback) + 3, {std::numeric_limits<uint32_t>::max(), std::string()});
+    m_states.assign(static_cast<size_t>(maxRollback) + 3, StoredState{});
+    m_key.reset();
+    m_diffStates = false;
     m_rollbackFrom.reset();
     m_pendingCheckpoints.clear();
     m_fingerprints.clear();
@@ -267,7 +271,14 @@ void Netplay::onAppMessage(Session& session, uint8_t from, const std::string& da
                 const int pingFrames = static_cast<int>(std::ceil(worstPing / 16.7));
                 uint8_t delay = 0, rollback = 0;
                 // EMU_NET_FORCE_DELAY : forcer le mode délai (pour comparer, en test).
-                if (m_stateSize > kMaxRollbackState || !m_rollbackSafe || SDL_getenv("EMU_NET_FORCE_DELAY")) {
+                // Console trop lourde : rollback seulement si l'hôte l'a demandé
+                // (photos différentielles), avec moins de profondeur.
+                const bool heavy = m_stateSize > kMaxRollbackState;
+                if (heavy && m_heavyRollback && m_rollbackSafe && !SDL_getenv("EMU_NET_FORCE_DELAY")) {
+                    delay = 2;
+                    rollback = static_cast<uint8_t>(std::clamp(pingFrames + 2, 3, 6));
+                    SDL_Log("Netplay : état de %zu Mo, rollback avec photos différentielles", m_stateSize / (1024 * 1024));
+                } else if (heavy || !m_rollbackSafe || SDL_getenv("EMU_NET_FORCE_DELAY")) {
                     // Console trop lourde : mode délai, assez pour couvrir l'aller-retour.
                     delay = static_cast<uint8_t>(std::clamp(static_cast<int>(std::ceil((worstPing + 25.0) / 16.7)), 2, 12));
                 } else {
@@ -398,12 +409,20 @@ uint32_t Netplay::minConfirmed() const
     return minimum;
 }
 
-std::string* Netplay::storedState(uint32_t frame)
+bool Netplay::restoreState(uint32_t frame, std::string& out) const
 {
     if (m_states.empty())
-        return nullptr;
-    auto& slot = m_states[frame % m_states.size()];
-    return slot.first == frame ? &slot.second : nullptr;
+        return false;
+    const StoredState& slot = m_states[frame % m_states.size()];
+    if (slot.frame != frame)
+        return false;
+    if (!slot.key) {
+        out = slot.data;
+        return true;
+    }
+    out = *slot.key;
+    statedelta::applyXor(out, slot.data);
+    return true;
 }
 
 // --- Une image de partie ---------------------------------------------------------------------------
@@ -418,8 +437,8 @@ int Netplay::tick(Session& session, Emulator& emulator, const PadInput& local)
     // 1. Retour en arrière : on s'était trompé sur des touches déjà jouées.
     if (m_rollbackFrom && *m_rollbackFrom < m_frame) {
         const uint32_t from = *m_rollbackFrom;
-        std::string* state = storedState(from);
-        if (!state || !emulator.load(*state)) {
+        std::string state;
+        if (!restoreState(from, state) || !emulator.load(state)) {
             stop(session, "Désynchronisation : retour en arrière impossible");
             return 0;
         }
@@ -520,9 +539,25 @@ int Netplay::tick(Session& session, Emulator& emulator, const PadInput& local)
 
 void Netplay::snapshot(Emulator& emulator, uint32_t f)
 {
-    auto& slot = m_states[f % m_states.size()];
-    if (emulator.save(slot.second))
-        slot.first = f;
+    StoredState& slot = m_states[f % m_states.size()];
+    if (emulator.save(m_scratch)) {
+        // Mode différentiel au-delà de la taille que l'anneau peut garder en
+        // entier (EMU_NET_DIFF_STATES : le forcer, pour les tests).
+        m_diffStates = m_scratch.size() > kMaxRollbackState || SDL_getenv("EMU_NET_DIFF_STATES");
+        if (!m_diffStates) {
+            slot.data.swap(m_scratch);
+            slot.key.reset();
+        } else {
+            // Une nouvelle photo clé toutes les 30 images (ou si la taille a changé).
+            if (!m_key || f - m_keyFrame >= 30 || f < m_keyFrame || m_key->size() != m_scratch.size()) {
+                m_key = std::make_shared<const std::string>(m_scratch);
+                m_keyFrame = f;
+            }
+            slot.key = m_key;
+            slot.data = statedelta::encodeXor(m_scratch, *m_key);
+        }
+        slot.frame = f;
+    }
     // Aux images de contrôle, on note aussi l'empreinte de la mémoire du jeu
     // (au même moment que la photographie : avant l'image f).
     if (f > 0 && f % kCheckEvery == 0 && emulator.fingerprint)
@@ -548,7 +583,8 @@ void Netplay::checkpoints(Session& session)
             hash = fp->second;
             m_fingerprints.erase(fp);
         }
-        if (const std::string* state = storedState(c)) {
+        if (std::string stateData; restoreState(c, stateData)) {
+            const std::string* state = &stateData;
             if (!hash)
                 hash = Hasher64::of(*state);
             // EMU_NET_DUMP=préfixe : écrit chaque état contrôlé, pour comparer

@@ -1,6 +1,10 @@
 #include "Settings.hpp"
 
+#include "Hash.hpp"
+
 #include <algorithm>
+#include <cstdio>
+#include <ctime>
 #include <fstream>
 #include <string>
 
@@ -38,6 +42,17 @@ void Settings::load(const std::filesystem::path& file)
         else if (key == "speedrunRecord") speedrunRecord = number != 0;
         else if (key == "speedrunKeep") speedrunKeep = std::clamp(number, 0, 2);
         else if (key == "speedrunResetGame") speedrunResetGame = number != 0;
+        else if (key == "speedrunPadSplit") speedrunPadSplit = std::clamp(number, -1, 25);
+        else if (key == "speedrunPadReset") speedrunPadReset = std::clamp(number, -1, 25);
+        else if (key == "speedrunVideoOverlay") speedrunVideoOverlay = number != 0;
+        else if (key == "inputDisplay") inputDisplay = number != 0;
+        else if (key == "parentalOn") parentalOn = number != 0;
+        else if (key == "parentalMinutes") parentalMinutes = std::clamp(number, 5, 24 * 60);
+        else if (key == "parentalPin") parentalPin = value;
+        else if (key == "parentalDay") parentalDay = number;
+        else if (key == "parentalUsed") parentalUsed = std::max(0, number);
+        else if (key == "parentalBonus") parentalBonus = std::max(0, number);
+        else if (key == "netHeavyRollback") netHeavyRollback = number != 0;
         else if (key == "theme" && !value.empty()) theme = value;
         else if (key == "accentColor") accentColor = value;
         else if (key == "background") background = std::clamp(number, 0, 3);
@@ -94,6 +109,17 @@ void Settings::save(const std::filesystem::path& file) const
         << "speedrunRecord=" << speedrunRecord << '\n'
         << "speedrunKeep=" << speedrunKeep << '\n'
         << "speedrunResetGame=" << speedrunResetGame << '\n'
+        << "speedrunPadSplit=" << speedrunPadSplit << '\n'
+        << "speedrunPadReset=" << speedrunPadReset << '\n'
+        << "speedrunVideoOverlay=" << speedrunVideoOverlay << '\n'
+        << "inputDisplay=" << inputDisplay << '\n'
+        << "parentalOn=" << parentalOn << '\n'
+        << "parentalMinutes=" << parentalMinutes << '\n'
+        << "parentalPin=" << parentalPin << '\n'
+        << "parentalDay=" << parentalDay << '\n'
+        << "parentalUsed=" << parentalUsed << '\n'
+        << "parentalBonus=" << parentalBonus << '\n'
+        << "netHeavyRollback=" << netHeavyRollback << '\n'
         << "theme=" << theme << '\n'
         << "accentColor=" << accentColor << '\n'
         << "background=" << background << '\n'
@@ -123,6 +149,36 @@ void Settings::save(const std::filesystem::path& file) const
         out << "external." << id << '=' << path << '\n';
     for (const auto& [id, args] : externalArgs)
         out << "externalArgs." << id << '=' << args << '\n';
+}
+
+void Settings::rollParentalDay()
+{
+    const std::time_t now = std::time(nullptr);
+    std::tm day{};
+    localtime_s(&day, &now);
+    const int today = (day.tm_year + 1900) * 10000 + (day.tm_mon + 1) * 100 + day.tm_mday;
+    if (parentalDay != today) {
+        parentalDay = today;
+        parentalUsed = 0;
+        parentalBonus = 0;
+    }
+}
+
+int Settings::parentalSecondsLeft() const
+{
+    if (!parentalOn)
+        return 1 << 30;
+    return std::max(0, (parentalMinutes + parentalBonus) * 60 - parentalUsed);
+}
+
+std::string Settings::pinHash(const std::string& pin)
+{
+    // (Pas besoin d'une protection de banque : il s'agit qu'un enfant ne
+    // retrouve pas le code en ouvrant settings.ini au Bloc-notes.)
+    char text[24];
+    std::snprintf(text, sizeof(text), "%016llx",
+                  static_cast<unsigned long long>(Hasher64::of(pin, 0x4E65786F526574ull))); // "NexoRet"
+    return text;
 }
 
 double Settings::maxAudioQueue() const

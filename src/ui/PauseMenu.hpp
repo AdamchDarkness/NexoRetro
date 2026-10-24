@@ -8,7 +8,7 @@
 namespace ui {
 
 enum class PauseAction { None, Resume, SaveState, LoadState, Reset, Screenshot, Fullscreen, Controls, Library, Quit,
-                         ToggleMic, ToggleNetStats };
+                         ToggleMic, ToggleNetStats, Slots };
 
 // Ce que le menu montre en plus pendant une partie en ligne.
 struct OnlineMenu {

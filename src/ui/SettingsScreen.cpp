@@ -1194,7 +1194,8 @@ void SettingsScreen::draw(UiContext& ctx)
     static const Tab tabs[] = {{"Affichage", 0},           {"Apparence", 10},           {"Son", 1},
                                {"Manettes", 2},            {"Sauvegardes", 3},          {"Dossiers", 4},
                                {"Jeu en ligne", 5},        {"Jaquettes et infos", 6},   {"Options des cores", 7},
-                               {"Émulateurs externes", 8}, {"Émulateurs (cores)", 9}, {"Mises à jour", 11}};
+                               {"Émulateurs externes", 8}, {"Émulateurs (cores)", 9}, {"Mises à jour", 11},
+                               {"Contrôle parental", 12}};
 
     // Les cores à installer l'un après l'autre (page "Émulateurs") : le
     // suivant part dès que le précédent est fini.
@@ -1474,6 +1475,10 @@ void SettingsScreen::draw(UiContext& ctx)
         });
         changed |= settingRow("Ping et pertes pendant la partie", "En haut à droite de l'écran (aussi dans le menu pause)", w,
                               px(46.0f), [&] { return toggle("##netStats", &s.netStats); });
+        changed |= settingRow("Rollback pour PS2 et GameCube (expérimental)",
+                              "Hôte : rollback même pour les consoles aux états très lourds, grâce aux états différentiels. "
+                              "Demande un PC rapide chez chaque joueur", w, px(46.0f),
+                              [&] { return toggle("##heavyRollback", &s.netHeavyRollback); });
         drawVoice(ctx, w, changed);
         drawDiscord(ctx, w, changed);
         break;
@@ -1540,6 +1545,10 @@ void SettingsScreen::draw(UiContext& ctx)
         header("Mises à jour", "Nexo Retro se met à jour depuis ses versions officielles.");
         drawUpdates(ctx, w);
         break;
+    case 12:
+        header("Contrôle parental", "Un temps de jeu par jour, protégé par un code.");
+        drawParental(ctx, w, changed);
+        break;
     default:
         break;
     }
@@ -1548,6 +1557,98 @@ void SettingsScreen::draw(UiContext& ctx)
 
     if (changed)
         ctx.settingsChanged();
+}
+
+void SettingsScreen::drawParental(UiContext& ctx, float width, bool& changed)
+{
+    Settings& s = ctx.settings;
+    s.rollParentalDay();
+    const float w = width;
+    // Le temps d'aujourd'hui, toujours visible (même verrouillé).
+    if (s.parentalOn) {
+        const int used = s.parentalUsed / 60;
+        const int limit = s.parentalMinutes + s.parentalBonus;
+        const std::string today = std::to_string(used) + " min sur " + std::to_string(limit);
+        settingRow("Aujourd'hui", s.parentalSecondsLeft() == 0 ? "Temps écoulé : plus de jeu jusqu'à demain" : "Temps de jeu déjà utilisé",
+                   w, draw::measure(Weight::Bold, 14.0f, today).x, [&] {
+                       const ImVec2 p = ImGui::GetCursorScreenPos();
+                       draw::text(ImGui::GetWindowDrawList(), ImVec2(p.x, p.y + px(10.0f)), Weight::Bold, 14.0f,
+                                  s.parentalSecondsLeft() == 0 ? theme::Danger : theme::Ink, today);
+                       return false;
+                   });
+    }
+    // Pas encore de code : on le choisit (c'est lui qui protège tout le reste).
+    if (s.parentalPin.empty()) {
+        settingRow("Code parent", "4 chiffres ou plus : il sera demandé pour changer ces réglages", w, px(250.0f + 130.0f), [&] {
+            textField("##newPin", m_pin, sizeof(m_pin), "Nouveau code", 240.0f);
+            sameLine(10.0f);
+            if (button("Activer", {.style = ButtonStyle::Primary, .height = 40.0f, .width = 120.0f,
+                                   .disabled = std::strlen(m_pin) < 4})) {
+                s.parentalPin = Settings::pinHash(m_pin);
+                s.parentalOn = true;
+                m_pin[0] = '\0';
+                m_parentalUnlocked = true;
+                changed = true;
+                ctx.notify("Contrôle parental activé");
+            }
+            return false;
+        });
+        space(6.0f);
+        textWrapped("Le temps est compté pendant le jeu (menu pause compris). Cinq minutes avant la fin, un message prévient ; "
+                    "à la fin, la partie est sauvegardée et l'émulateur revient à la bibliothèque. Plus aucun jeu ne se lance "
+                    "jusqu'au lendemain, sauf si un parent ajoute du temps avec son code.",
+                    13.0f, Weight::Medium, theme::Muted, w);
+        return;
+    }
+    // Verrouillé : il faut le code pour aller plus loin.
+    if (!m_parentalUnlocked) {
+        settingRow("Déverrouiller", "Le code parent est demandé pour modifier ces réglages", w, px(250.0f + 130.0f), [&] {
+            const bool enter = textField("##pin", m_pin, sizeof(m_pin), "Code parent", 240.0f) && ImGui::IsKeyPressed(ImGuiKey_Enter);
+            sameLine(10.0f);
+            if (button("Valider", {.style = ButtonStyle::Primary, .height = 40.0f, .width = 120.0f}) || enter) {
+                if (Settings::pinHash(m_pin) == s.parentalPin)
+                    m_parentalUnlocked = true;
+                else
+                    ctx.notify("Code incorrect");
+                m_pin[0] = '\0';
+            }
+            return false;
+        });
+        return;
+    }
+    // Déverrouillé.
+    changed |= settingRow("Contrôle parental", "Limiter le temps de jeu de chaque jour", w, px(46.0f),
+                          [&] { return toggle("##parentalOn", &s.parentalOn); });
+    changed |= settingRow("Temps de jeu par jour", "De 15 minutes à 6 heures", w, px(260.0f), [&] {
+        return slider("##minutes", &s.parentalMinutes, 15, 360, 260.0f, " min");
+    });
+    settingRow("Ajouter du temps aujourd'hui", "Une exception, pour aujourd'hui seulement", w, px(130.0f * 2 + 10.0f), [&] {
+        const ImVec2 b = ImGui::GetCursorScreenPos();
+        if (button("+ 15 min", {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f, .fontSize = 13.0f})) {
+            s.parentalBonus += 15;
+            changed = true;
+        }
+        ImGui::SetCursorScreenPos(ImVec2(b.x + px(140.0f), b.y));
+        if (button("+ 30 min", {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f, .fontSize = 13.0f})) {
+            s.parentalBonus += 30;
+            changed = true;
+        }
+        return false;
+    });
+    settingRow("Changer le code", "Le nouveau code remplace l'ancien", w, px(250.0f + 130.0f), [&] {
+        textField("##changePin", m_pin, sizeof(m_pin), "Nouveau code", 240.0f);
+        sameLine(10.0f);
+        if (button("Changer", {.style = ButtonStyle::Outline, .height = 40.0f, .width = 120.0f, .disabled = std::strlen(m_pin) < 4})) {
+            s.parentalPin = Settings::pinHash(m_pin);
+            m_pin[0] = '\0';
+            changed = true;
+            ctx.notify("Code parent changé");
+        }
+        return false;
+    });
+    space(6.0f);
+    if (button("Verrouiller", {.style = ButtonStyle::Primary, .icon = draw::Icon::Check, .height = 42.0f}))
+        m_parentalUnlocked = false;
 }
 
 void SettingsScreen::drawDuplicates(UiContext& ctx)

@@ -17,6 +17,7 @@
 #include "ui/Draw.hpp"
 #include "ui/Theme.hpp"
 #include "ui/Themes.hpp"
+#include "ui/Widgets.hpp"
 
 #include <imgui.h>
 #include <stb_image.h> // (l'implémentation est dans ui/Covers.cpp)
@@ -65,9 +66,14 @@ App::App(AppOptions options)
       m_speedrun(dir("speedrun.txt")),
       // Le contexte des écrans : des références vers nos membres, et des
       // lambdas qui appellent nos méthodes. [C++] [this] capture l'objet App.
-      m_context{m_library, m_userData, m_settings, m_bios, m_covers, m_input, m_nav, m_session, m_online, m_scraper, m_installer,
+      m_context{m_library, m_userData, m_settings, m_bios, m_covers, m_input, m_nav, m_session, m_relayServer, m_online, m_scraper, m_installer,
                 m_voice, m_coreUpdater, m_discord, m_portableCopy, m_speedrun, m_options.dataDir,
                 [this](const Game& game, const fs::path& state) {
+                    m_settings.rollParentalDay();
+                    if (m_settings.parentalSecondsLeft() == 0) {
+                        m_ui.notify("Temps de jeu du jour écoulé : un parent peut en ajouter (Paramètres > Contrôle parental)");
+                        return;
+                    }
                     // Switch, Xbox, PS3... : un programme à part lance le jeu.
                     if (game.system->external())
                         launchExternal(game);
@@ -90,6 +96,12 @@ App::App(AppOptions options)
                     case DialogPurpose::ImportBios: m_dialogs.openZip(m_video.window(), purpose); break;
                     case DialogPurpose::MakePortable:
                     case DialogPurpose::ChooseSpeedrunFolder: m_dialogs.openFolder(m_video.window(), purpose); break;
+                    case DialogPurpose::ImportSplits:
+                        m_dialogs.openFile(m_video.window(), purpose, "Splits LiveSplit", "lss");
+                        break;
+                    case DialogPurpose::ExportSplits:
+                        m_dialogs.saveFile(m_video.window(), purpose, "splits.lss", "Splits LiveSplit", "lss");
+                        break;
                     case DialogPurpose::ExportLibraryCsv:
                         m_dialogs.saveFile(m_video.window(), purpose, "NexoRetro-collection.csv", "CSV", "csv");
                         break;
@@ -355,6 +367,26 @@ bool App::init()
         SDL_Log("TEST BIOS : %s", result.c_str());
         m_ui.notify(result);
     }
+    if (!m_options.testLss.empty()) {
+        speedrun::Category cat;
+        std::string game;
+        std::string error;
+        if (speedrun::importLss(m_options.testLss, cat, game, error)) {
+            SDL_Log("TEST LSS : %s / %s, %zu splits, %d essais, PB %s, SoB %s", game.c_str(), cat.name.c_str(), cat.segments.size(),
+                    cat.attempts, speedrun::formatTime(cat.pb()).c_str(), speedrun::formatTime(cat.sumOfBest()).c_str());
+            fs::path out = m_options.testLss;
+            out.replace_extension(".export.lss");
+            speedrun::Category again;
+            std::string game2;
+            const bool round = speedrun::exportLss(out, cat, game) && speedrun::importLss(out, again, game2, error);
+            SDL_Log("TEST LSS : aller-retour %s (PB %s, SoB %s)", round ? "OK" : error.c_str(), speedrun::formatTime(again.pb()).c_str(),
+                    speedrun::formatTime(again.sumOfBest()).c_str());
+        } else {
+            SDL_Log("TEST LSS : %s", error.c_str());
+        }
+    }
+    if (!m_options.testSrcom.empty())
+        m_testSrcom.search(m_options.testSrcom);
     if (!m_options.exportLibrary.empty()) {
         const fs::path& file = m_options.exportLibrary;
         const std::string result = toUtf8(file.extension()) == ".csv"
@@ -475,8 +507,12 @@ int App::run()
                                      m_input.padChordHeld(SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
             const bool wantFast = solo && (keys[SDL_SCANCODE_TAB] || testHeld("EMU_TEST_FAST") ||
                                            m_input.padChordHeld(SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER));
+            const TimeMode previousMode = m_timeMode;
             m_timeMode = TimeMode::Normal;
             if (wantRewind && m_rewindUsable) {
+                // Début du retour en arrière : le point de départ de la frise.
+                if (previousMode != TimeMode::Rewinding && previousMode != TimeMode::RewindEnd)
+                    m_rewindFrom = m_rewind.newest();
                 // Une image en arrière : la photo précédente, puis une image
                 // calculée sans le son, pour l'afficher.
                 std::string previous;
@@ -516,7 +552,11 @@ int App::run()
                     if (m_options.openMenu && ++m_testMenuFrames == 60) {
                         setMenuOpen(true);
                         m_controlsOpen = m_options.openControls;
+                        m_slotsOpen = m_options.openSlots;
                     }
+                    // --slots : deux emplacements remplis avant d'ouvrir le menu.
+                    if (m_options.openSlots && (m_testMenuFrames == 20 || m_testMenuFrames == 45))
+                        m_pendingSlot = m_testMenuFrames == 20 ? 0 : 3;
                     if (m_link.running())
                         ++m_linkFrames;
                     if (cable)
@@ -558,14 +598,28 @@ int App::run()
 
         m_video.renderGame();
         updateSpeedrun();
-        if (m_recorder.recording()) {
+        updateParental();
+        // L'image de la vidéo : celle du jeu seul, ou (réglage) avec ce qui est
+        // dessiné par-dessus, chrono et touches compris (les notifications
+        // sont alors cachées pendant l'enregistrement).
+        const bool overlayInVideo = m_settings.speedrunVideoOverlay;
+        auto recordFrame = [&] {
             int w = 0;
             int h = 0;
             std::vector<uint8_t> pixels;
             if (m_video.readGameArea(pixels, w, h))
                 m_recorder.addFrame(std::move(pixels), w, h, m_emuFrames);
-        }
+        };
+        if (m_recorder.recording() && !overlayInVideo)
+            recordFrame();
+        m_ui.setNotificationsHidden(m_recorder.recording() && overlayInVideo);
+        // Emplacements de sauvegarde : la miniature est prise sur l'image du jeu seul.
+        if (m_pendingSlot >= 0)
+            saveSlot(m_pendingSlot);
+        captureRewindThumbnail();
         drawUi();
+        if (m_recorder.recording() && overlayInVideo)
+            recordFrame();
 
         ++frameCount;
         if (m_options.maxFrames > 0 && frameCount >= m_options.maxFrames) {
@@ -641,6 +695,11 @@ void App::handleEvent(const SDL_Event& event)
             const bool combo = event.gbutton.button == SDL_GAMEPAD_BUTTON_START && pad &&
                                SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK);
             const bool guide = event.gbutton.button == SDL_GAMEPAD_BUTTON_GUIDE;
+            // Le chrono des speedruns à la manette (boutons choisis dans l'écran Speedrun).
+            if (!m_menuOpen && event.gbutton.button == m_settings.speedrunPadSplit)
+                speedrunKey(SDLK_F5);
+            if (!m_menuOpen && event.gbutton.button == m_settings.speedrunPadReset)
+                speedrunKey(SDLK_F9);
             if ((m_settings.menuButton == 0 && combo) || (m_settings.menuButton == 1 && guide))
                 setMenuOpen(!m_menuOpen);
         }
@@ -711,14 +770,21 @@ void App::drawUi()
         drawTimeBadge();
         if (m_speedrun.enabled())
             drawSpeedrunOverlay();
+        // (Pas par-dessus le menu ni la frise du retour en arrière.)
+        if (m_settings.inputDisplay && !m_menuOpen && m_timeMode != TimeMode::Rewinding && m_timeMode != TimeMode::RewindEnd)
+            drawInputDisplay();
         if (m_netplay.active())
             drawNetplayOverlay();
         if (m_link.active())
             drawLinkOverlay();
         if (m_netplay.active() || m_link.active())
             drawOnlineStats();
+        if (m_timeMode == TimeMode::Rewinding || m_timeMode == TimeMode::RewindEnd)
+            drawRewindTimeline();
         if (m_menuOpen && m_controlsOpen) {
             drawControlsScreen();
+        } else if (m_menuOpen && m_slotsOpen) {
+            drawSlotsScreen();
         } else if (m_menuOpen)
         {
             bool volumeChanged = false;
@@ -738,7 +804,23 @@ void App::drawUi()
 
 void App::updateNetwork()
 {
+    if (std::optional<SpeedrunCom::Result> r = m_testSrcom.take()) {
+        SDL_Log("TEST SRCOM : %s (%s) %s", r->gameName.c_str(), r->gameLink.c_str(), r->error.c_str());
+        for (const SpeedrunCom::OfficialCategory& c : r->categories)
+            SDL_Log("TEST SRCOM : - %s : WR %s par %s", c.name.c_str(), speedrun::formatTime(c.wrMs).c_str(), c.wrBy.c_str());
+    }
     m_session.update();
+    m_relayServer.update();
+    // Test : un relais qui écrit son code dans un fichier dès qu'il est prêt.
+    if (!m_options.netTestRelay.empty()) {
+        if (!m_relayServer.running() && !m_netTestRelayWritten)
+            m_relayServer.start();
+        if (m_relayServer.ready() && !m_netTestRelayWritten) {
+            std::ofstream(m_options.netTestRelay) << m_relayServer.code();
+            m_netTestRelayWritten = true;
+            SDL_Log("TEST RELAIS : code écrit (%s)", m_relayServer.code().c_str());
+        }
+    }
     // (Ceux mis de côté pendant une image par la pompe du câble, puis les nouveaux.)
     std::vector<net::Session::Event> events = std::move(m_deferredEvents);
     m_deferredEvents.clear();
@@ -1235,8 +1317,16 @@ void App::updateNetTest(const net::Session::Event* event)
     }
 
     if (host) {
-        if (m_session.state() == net::Session::State::Idle && !m_netTestCodeWritten && !m_netTestQuitAt)
-            m_session.host("Salon de test", m_options.netTestPassword);
+        if (m_session.state() == net::Session::State::Idle && !m_netTestCodeWritten && !m_netTestQuitAt) {
+            // --net-relay-code <fichier> : héberger par le relais dont le code est dans ce fichier.
+            std::string relayCode;
+            if (!m_options.netTestRelayCode.empty())
+                std::getline(std::ifstream(m_options.netTestRelayCode), relayCode);
+            if (!relayCode.empty())
+                m_session.hostViaRelay("Salon de test", m_options.netTestPassword, relayCode);
+            else
+                m_session.host("Salon de test", m_options.netTestPassword);
+        }
         if (m_session.state() == net::Session::State::Hosting && !m_netTestCodeWritten) {
             std::ofstream(m_options.netTestHost) << m_session.inviteCode();
             m_netTestCodeWritten = true;
@@ -1632,6 +1722,7 @@ bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::pa
     m_input.setRemap(m_remaps.get(m_remapKey));
     // Le retour en arrière repart de zéro pour ce jeu.
     m_rewind.reset();
+    clearRewindThumbnails();
     m_rewindUsable = true;
     m_gameLoops = 0;
     // Le dossier de sauvegarde du jeu : saves/<nom>/ (créé au besoin).
@@ -1717,12 +1808,14 @@ void App::closeGame()
     m_input.clearOverride();
     m_input.setRemap(Remaps::identity()); // hors du jeu : chaque bouton à lui-même
     m_controlsOpen = false;
+    m_slotsOpen = false;
     if (!m_romPath.empty()) {
         GameRecord& record = m_userData.record(m_romPath);
         record.lastPlayed = now();
         record.playSeconds += now() - m_playStart;
         m_userData.save();
     }
+    clearRewindThumbnails();
     m_core.reset();
     m_coreInUse.clear();
     m_audio.clear();
@@ -1785,6 +1878,7 @@ void App::applySettings()
     // L'apparence : thème, couleurs, fond, police (rechargée par Ui::beginFrame).
     theme::applySettings(m_settings);
     m_ui.setZoom(m_settings.uiZoom / 100.0f);
+    m_netplay.setHeavyRollback(m_settings.netHeavyRollback);
     // Sons de l'interface : pack choisi, ou celui du thème.
     const int pack = m_settings.uiSoundPack > 0 ? m_settings.uiSoundPack - 1 : theme::active().soundPack;
     sounds::configure(m_settings.uiSounds, m_settings.uiSoundVolume, static_cast<sounds::Pack>(pack));
@@ -1883,6 +1977,7 @@ void App::setMenuOpen(bool open)
 {
     m_menuOpen = open;
     m_controlsOpen = false;
+    m_slotsOpen = false;
     m_audio.setPaused(open && !m_netplay.active()); // en ligne, le jeu continue
     if (open)
         m_pauseMenu.open();
@@ -1931,6 +2026,8 @@ void App::drawControlsScreen()
         m_input.setRemap(m_remaps.get(m_remapKey));
     if (result.back)
         m_controlsOpen = false;
+        m_slotsOpen = false;
+    m_slotsOpen = false;
 }
 
 void App::handlePauseAction(ui::PauseAction action)
@@ -1938,7 +2035,8 @@ void App::handlePauseAction(ui::PauseAction action)
     using ui::PauseAction;
     // En ligne, changer l'état d'un seul émulateur désynchroniserait la partie.
     const bool online = m_netplay.active();
-    if (online && (action == PauseAction::SaveState || action == PauseAction::LoadState || action == PauseAction::Reset)) {
+    if (online && (action == PauseAction::SaveState || action == PauseAction::LoadState || action == PauseAction::Reset ||
+                   action == PauseAction::Slots)) {
         m_ui.notify("Indisponible pendant une partie en ligne");
         return;
     }
@@ -1948,6 +2046,7 @@ void App::handlePauseAction(ui::PauseAction action)
     case PauseAction::None: break;
     case PauseAction::Resume: setMenuOpen(false); break;
     case PauseAction::Controls: m_controlsOpen = true; break;
+    case PauseAction::Slots: m_slotsOpen = true; break;
     case PauseAction::SaveState: saveState(); break;
     case PauseAction::LoadState: loadState(); setMenuOpen(false); break;
     case PauseAction::Reset: m_core->reset(); setMenuOpen(false); break;
@@ -1989,6 +2088,39 @@ void App::captureRewind()
 
 // --- Speedrun ------------------------------------------------------------------------------
 
+void App::updateParental()
+{
+    if (!m_settings.parentalOn)
+        return;
+    const Uint64 ticks = SDL_GetTicks();
+    if (m_mode != Mode::Playing) {
+        m_parentalTick = ticks;
+        m_parentalWarned = false;
+        return;
+    }
+    if (ticks - m_parentalTick < 1000)
+        return;
+    m_parentalTick = ticks;
+    m_settings.rollParentalDay();
+    // (Le temps compte aussi menu ouvert : une pause ne se prolonge pas indéfiniment.)
+    ++m_settings.parentalUsed;
+    if (m_settings.parentalUsed % 30 == 0)
+        m_settings.save(dir("settings.ini"));
+    const int left = m_settings.parentalSecondsLeft();
+    if (left <= 5 * 60 && !m_parentalWarned) {
+        m_parentalWarned = true;
+        m_ui.notify("Plus que " + std::to_string((left + 59) / 60) + " min de jeu aujourd'hui");
+    }
+    if (left == 0 && !m_pendingReturn) {
+        // La partie est sauvegardée (sauvegarde du jeu et état automatique) en quittant.
+        m_settings.save(dir("settings.ini"));
+        m_ui.notify("Le temps de jeu d'aujourd'hui est écoulé : la partie est sauvegardée");
+        if (m_netplay.active())
+            m_netplay.stop(m_session, m_settings.nickname + " a atteint son temps de jeu du jour");
+        m_pendingReturn = true;
+    }
+}
+
 void App::speedrunKey(SDL_Keycode key)
 {
     // En ligne, le temps ne s'arrête pas pour un seul joueur : pas de chrono.
@@ -2006,6 +2138,7 @@ void App::speedrunKey(SDL_Keycode key)
         if (m_settings.speedrunResetGame && m_core) {
             m_core->reset();
             m_rewind.reset();
+            clearRewindThumbnails();
         }
         m_ui.notify("Chrono remis à zéro");
         break;
@@ -2067,6 +2200,308 @@ void App::updateSpeedrun()
     }
     if (const std::string error = m_recorder.takeError(); !error.empty())
         m_ui.notify(error);
+}
+
+// --- Emplacements de sauvegarde ---------------------------------------------------------------
+
+std::filesystem::path App::slotFile(int slot, const char* extension) const
+{
+    return m_gameSaveDir / fromUtf8("slot" + std::to_string(slot + 1) + extension);
+}
+
+void App::saveSlot(int slot)
+{
+    m_pendingSlot = -1;
+    if (!m_core)
+        return;
+    std::error_code ec;
+    fs::create_directories(m_gameSaveDir, ec);
+    if (!m_core->saveState(slotFile(slot, ".state"))) {
+        m_ui.notify("Échec de la sauvegarde d'état");
+        return;
+    }
+    // La miniature : l'image du jeu réduite à 320 pixels de large.
+    int w = 0;
+    int h = 0;
+    std::vector<uint8_t> pixels;
+    if (m_video.readGameArea(pixels, w, h) && w > 0 && h > 0) {
+        const int tw = std::min(320, w);
+        const int th = std::max(1, h * tw / w);
+        std::vector<uint8_t> thumb(static_cast<size_t>(tw) * th * 4);
+        for (int y = 0; y < th; ++y)
+            for (int x = 0; x < tw; ++x) {
+                // (Lignes de bas en haut dans l'image lue : on la retourne.)
+                const uint8_t* src = &pixels[(static_cast<size_t>(h - 1 - y * h / th) * w + x * w / tw) * 4];
+                uint8_t* dst = &thumb[(static_cast<size_t>(y) * tw + x) * 4];
+                dst[0] = src[2]; // BGRA -> RGBA
+                dst[1] = src[1];
+                dst[2] = src[0];
+                dst[3] = 255;
+            }
+        const std::string file = toUtf8(slotFile(slot, ".bmp"));
+        if (SDL_Surface* surface = SDL_CreateSurfaceFrom(tw, th, SDL_PIXELFORMAT_RGBA32, thumb.data(), tw * 4)) {
+            SDL_SaveBMP(surface, file.c_str());
+            SDL_DestroySurface(surface);
+        }
+        m_covers.forget(file); // (l'ancienne miniature n'est plus la bonne)
+    }
+    m_ui.notify("Sauvegardé dans l'emplacement " + std::to_string(slot + 1));
+}
+
+void App::loadSlot(int slot)
+{
+    if (!m_core)
+        return;
+    m_speedrun.markAssisted();
+    if (m_core->loadState(slotFile(slot, ".state"))) {
+        m_ui.notify("Emplacement " + std::to_string(slot + 1) + " chargé");
+        setMenuOpen(false);
+    } else {
+        m_ui.notify("Cet emplacement est vide");
+    }
+}
+
+void App::drawSlotsScreen()
+{
+    using theme::px;
+    using theme::Weight;
+    // Une grande carte au centre : 8 emplacements (4 x 2), chacun avec sa
+    // miniature, sa date, et ses deux boutons.
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImDrawList* bg = ImGui::GetBackgroundDrawList();
+    bg->AddRectFilled(viewport->Pos, ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
+                      IM_COL32(0, 0, 0, 150));
+    const ImVec2 size(std::min(px(980.0f), viewport->Size.x - px(32.0f)), std::min(px(620.0f), viewport->Size.y - px(32.0f)));
+    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(size);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::Surface);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, px(26.0f, 26.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, px(24.0f));
+    ImGui::Begin("##slots", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    const float inner = ImGui::GetContentRegionAvail().x;
+    const ImVec2 top = ImGui::GetCursorPos();
+    ui::text("Emplacements de sauvegarde", 22.0f, Weight::ExtraBold);
+    ui::text(m_gameTitle, 13.0f, Weight::SemiBold, theme::Muted);
+    const ImVec2 after = ImGui::GetCursorPos();
+    ImGui::SetCursorPos(ImVec2(top.x + inner - px(120.0f), top.y));
+    if (ui::button("Retour", {.style = ui::ButtonStyle::Soft, .icon = draw::Icon::ChevronLeft, .height = 40.0f, .width = 120.0f}) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))
+        m_slotsOpen = false;
+    ImGui::SetCursorPos(after);
+    ui::space(8.0f);
+    constexpr int kSlots = 8;
+    const float gap = px(14.0f);
+    const float cardW = (inner - gap * 3) / 4;
+    // Deux rangées qui tiennent dans la hauteur disponible (petite fenêtre comprise).
+    const float cardH = std::min(cardW * 0.62f + px(96.0f), (ImGui::GetContentRegionAvail().y - gap) / 2);
+    const float thumbH = std::max(px(30.0f), cardH - px(96.0f));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    for (int i = 0; i < kSlots; ++i) {
+        ImGui::PushID(i);
+        const ImVec2 p(origin.x + (i % 4) * (cardW + gap), origin.y + (i / 4) * (cardH + gap));
+        draw::rect(dl, p, ImVec2(p.x + cardW, p.y + cardH), theme::Ground, px(16.0f));
+        const fs::path state = slotFile(i, ".state");
+        const long long when = ui::fileTime(state);
+        const ImVec2 tmin(p.x + px(8.0f), p.y + px(8.0f));
+        const ImVec2 tmax(p.x + cardW - px(8.0f), p.y + px(8.0f) + thumbH);
+        if (when == 0 || !m_covers.drawImage(dl, tmin, tmax, toUtf8(slotFile(i, ".bmp")), px(10.0f), 320)) {
+            draw::rect(dl, tmin, tmax, theme::Track, px(10.0f));
+            const char* label = when == 0 ? "Vide" : "État sans miniature";
+            const ImVec2 ls = draw::measure(Weight::SemiBold, 12.0f, label);
+            draw::text(dl, ImVec2((tmin.x + tmax.x - ls.x) / 2, (tmin.y + tmax.y - ls.y) / 2), Weight::SemiBold, 12.0f, theme::Muted,
+                       label);
+        }
+        draw::text(dl, ImVec2(p.x + px(12.0f), tmax.y + px(8.0f)), Weight::Bold, 13.0f, theme::Ink,
+                   "Emplacement " + std::to_string(i + 1));
+        draw::textEllipsis(dl, ImVec2(p.x + px(12.0f), tmax.y + px(27.0f)), Weight::Medium, 11.0f, theme::Muted,
+                           when ? ui::formatAgo(when) : std::string("—"), cardW - px(24.0f));
+        const float bw = (cardW - px(24.0f) - px(6.0f)) / 2 / theme::scale();
+        ImGui::SetCursorScreenPos(ImVec2(p.x + px(12.0f), p.y + cardH - px(44.0f)));
+        if (ui::button("Sauver", {.style = ui::ButtonStyle::Primary, .height = 34.0f, .width = bw, .fontSize = 12.0f}))
+            m_pendingSlot = i; // (la miniature sera prise sur l'image du jeu, sans le menu)
+        ImGui::SameLine(0.0f, px(6.0f));
+        if (ui::button("Charger", {.style = ui::ButtonStyle::Outline, .height = 34.0f, .width = bw, .fontSize = 12.0f,
+                                   .disabled = when == 0}))
+            loadSlot(i);
+        ImGui::PopID();
+    }
+    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + 2 * cardH + gap));
+    ImGui::Dummy(ImVec2(inner, px(1.0f)));
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+}
+
+// --- Frise du retour en arrière -------------------------------------------------------------------
+
+void App::captureRewindThumbnail()
+{
+    if (m_mode != Mode::Playing || !m_rewindUsable || !m_settings.rewind || m_rewind.frames() == 0)
+        return;
+    if (m_timeMode != TimeMode::Normal)
+        return;
+    // Le passé oublié, et (après un retour en arrière) le "futur" abandonné.
+    while (!m_rewindThumbs.empty() && m_rewindThumbs.front().index < m_rewind.oldest()) {
+        Covers::deleteTexture(m_rewindThumbs.front().texture);
+        m_rewindThumbs.pop_front();
+    }
+    while (!m_rewindThumbs.empty() && m_rewindThumbs.back().index > m_rewind.newest()) {
+        Covers::deleteTexture(m_rewindThumbs.back().texture);
+        m_rewindThumbs.pop_back();
+    }
+    // Une miniature par seconde de jeu.
+    const double fps = m_core ? std::max(1.0, m_core->avInfo().timing.fps) : 60.0;
+    if (!m_rewindThumbs.empty() && static_cast<double>(m_rewind.newest() - m_rewindThumbs.back().index) < fps)
+        return;
+    int w = 0;
+    int h = 0;
+    std::vector<uint8_t> pixels;
+    if (!m_video.readGameArea(pixels, w, h) || w <= 0 || h <= 0)
+        return;
+    const int tw = std::min(160, w);
+    const int th = std::max(1, h * tw / w);
+    std::vector<uint8_t> thumb(static_cast<size_t>(tw) * th * 4);
+    for (int y = 0; y < th; ++y)
+        for (int x = 0; x < tw; ++x) {
+            const uint8_t* src = &pixels[(static_cast<size_t>(h - 1 - y * h / th) * w + x * w / tw) * 4];
+            uint8_t* dst = &thumb[(static_cast<size_t>(y) * tw + x) * 4];
+            dst[0] = src[2];
+            dst[1] = src[1];
+            dst[2] = src[0];
+            dst[3] = 255;
+        }
+    m_rewindThumbs.push_back({m_rewind.newest(), Covers::createTexture(thumb.data(), tw, th), tw, th});
+    // (Au plus 10 minutes de miniatures : 600 petites textures.)
+    while (m_rewindThumbs.size() > 600) {
+        Covers::deleteTexture(m_rewindThumbs.front().texture);
+        m_rewindThumbs.pop_front();
+    }
+}
+
+void App::clearRewindThumbnails()
+{
+    for (const RewindThumb& t : m_rewindThumbs)
+        Covers::deleteTexture(t.texture);
+    m_rewindThumbs.clear();
+}
+
+void App::drawRewindTimeline()
+{
+    using theme::px;
+    using theme::Weight;
+    // En bas de l'écran : le passé disponible, de gauche (le plus ancien) à
+    // droite (là où le retour en arrière a commencé), avec des miniatures et
+    // un repère à l'image affichée.
+    const uint64_t oldest = m_rewind.oldest();
+    const uint64_t from = std::max(m_rewindFrom, m_rewind.newest());
+    const uint64_t now = m_rewind.newest();
+    if (from <= oldest)
+        return;
+    const double fps = m_core ? std::max(1.0, m_core->avInfo().timing.fps) : 60.0;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float width = std::min(px(900.0f), viewport->Size.x - px(40.0f));
+    const float thumbH = px(62.0f);
+    const ImVec2 min(viewport->Pos.x + (viewport->Size.x - width) / 2, viewport->Pos.y + viewport->Size.y - px(130.0f));
+    const ImVec2 max(min.x + width, min.y + px(112.0f));
+    draw::rect(dl, min, max, IM_COL32(14, 14, 20, 215), px(18.0f));
+    const float trackL = min.x + px(16.0f);
+    const float trackR = max.x - px(16.0f);
+    auto xOf = [&](uint64_t index) {
+        return trackL + (trackR - trackL) * static_cast<float>(static_cast<double>(index - oldest) / static_cast<double>(from - oldest));
+    };
+    // Les miniatures : au plus 9, réparties sur la frise.
+    const int slots = 9;
+    const float slotW = (trackR - trackL) / slots;
+    for (int s = 0; s < slots; ++s) {
+        const uint64_t target = oldest + static_cast<uint64_t>((from - oldest) * (s + 0.5) / slots);
+        const RewindThumb* best = nullptr;
+        for (const RewindThumb& t : m_rewindThumbs)
+            if (t.index >= oldest && t.index <= from &&
+                (!best || std::llabs(static_cast<long long>(t.index) - static_cast<long long>(target)) <
+                              std::llabs(static_cast<long long>(best->index) - static_cast<long long>(target))))
+                best = &t;
+        if (!best)
+            continue;
+        const float w = std::min(slotW - px(6.0f), thumbH * best->width / std::max(1, best->height));
+        const ImVec2 a(trackL + s * slotW + (slotW - w) / 2, min.y + px(12.0f));
+        const bool future = best->index > now; // déjà "remonté" : estompé
+        dl->AddImageRounded(static_cast<ImTextureID>(static_cast<intptr_t>(best->texture)), a, ImVec2(a.x + w, a.y + thumbH),
+                            ImVec2(0, 0), ImVec2(1, 1), future ? IM_COL32(255, 255, 255, 90) : IM_COL32_WHITE, px(6.0f));
+    }
+    // La piste et le repère.
+    const float trackY = min.y + px(12.0f) + thumbH + px(12.0f);
+    dl->AddLine(ImVec2(trackL, trackY), ImVec2(trackR, trackY), IM_COL32(255, 255, 255, 50), px(4.0f));
+    dl->AddLine(ImVec2(trackL, trackY), ImVec2(xOf(now), trackY), IM_COL32(110, 140, 255, 255), px(4.0f));
+    dl->AddCircleFilled(ImVec2(xOf(now), trackY), px(7.0f), IM_COL32_WHITE, 20);
+    char label[64];
+    std::snprintf(label, sizeof(label), "-%.1f s", static_cast<double>(from - now) / fps);
+    const ImVec2 ls = draw::measure(Weight::ExtraBold, 13.0f, label);
+    float lx = std::clamp(xOf(now) - ls.x / 2, min.x + px(8.0f), max.x - px(8.0f) - ls.x);
+    draw::text(dl, ImVec2(lx, min.y + px(12.0f) + thumbH - ls.y - px(4.0f)), Weight::ExtraBold, 13.0f, IM_COL32_WHITE, label);
+}
+
+void App::drawInputDisplay()
+{
+    using theme::px;
+    // Une manette dessinée en bas à gauche de l'image du jeu : chaque bouton
+    // s'allume quand il est appuyé (touches du joueur de ce PC).
+    const Input::PadState pad = m_input.sampleLocal();
+    auto down = [&](int id) { return (pad.buttons >> id) & 1; };
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const float* game = m_video.gameRect();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float left = game[2] > 0 ? game[0] : 0.0f;
+    const float bottom = game[3] > 0 ? game[1] + game[3] : viewport->Size.y;
+    const ImVec2 size(px(210.0f), px(104.0f));
+    const ImVec2 min(left + px(16.0f), bottom - px(16.0f) - size.y);
+    const ImU32 panel = IM_COL32(14, 14, 20, 200);
+    const ImU32 off = IM_COL32(255, 255, 255, 40);
+    const ImU32 on = IM_COL32(110, 140, 255, 255);
+    draw::rect(dl, min, ImVec2(min.x + size.x, min.y + size.y), panel, px(18.0f));
+    // Gâchettes.
+    auto shoulder = [&](float x, int id, int id2, const char* label) {
+        const ImVec2 a(min.x + x, min.y + px(8.0f));
+        const bool pressed = down(id) || down(id2);
+        draw::rect(dl, a, ImVec2(a.x + px(46.0f), a.y + px(14.0f)), pressed ? on : off, px(7.0f));
+        const ImVec2 ts = draw::measure(theme::Weight::Bold, 9.0f, label);
+        draw::text(dl, ImVec2(a.x + (px(46.0f) - ts.x) / 2, a.y + (px(14.0f) - ts.y) / 2), theme::Weight::Bold, 9.0f,
+                   IM_COL32(255, 255, 255, 200), label);
+    };
+    shoulder(px(14.0f), RETRO_DEVICE_ID_JOYPAD_L, RETRO_DEVICE_ID_JOYPAD_L2, "L");
+    shoulder(size.x - px(60.0f), RETRO_DEVICE_ID_JOYPAD_R, RETRO_DEVICE_ID_JOYPAD_R2, "R");
+    // Croix directionnelle.
+    const ImVec2 c(min.x + px(46.0f), min.y + px(62.0f));
+    const float arm = px(12.0f);
+    auto dpad = [&](float dx, float dy, int id) {
+        const ImVec2 p(c.x + dx * arm - arm / 2, c.y + dy * arm - arm / 2);
+        draw::rect(dl, p, ImVec2(p.x + arm, p.y + arm), down(id) ? on : off, px(3.0f));
+    };
+    dpad(0, -1, RETRO_DEVICE_ID_JOYPAD_UP);
+    dpad(0, 1, RETRO_DEVICE_ID_JOYPAD_DOWN);
+    dpad(-1, 0, RETRO_DEVICE_ID_JOYPAD_LEFT);
+    dpad(1, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT);
+    draw::rect(dl, ImVec2(c.x - arm / 2, c.y - arm / 2), ImVec2(c.x + arm / 2, c.y + arm / 2), off, 0.0f);
+    // Select et Start au centre.
+    auto pill = [&](float x, int id) {
+        const ImVec2 p(min.x + x, min.y + px(70.0f));
+        draw::rect(dl, p, ImVec2(p.x + px(20.0f), p.y + px(8.0f)), down(id) ? on : off, px(4.0f));
+    };
+    pill(px(84.0f), RETRO_DEVICE_ID_JOYPAD_SELECT);
+    pill(px(108.0f), RETRO_DEVICE_ID_JOYPAD_START);
+    // Boutons A, B, X, Y (disposition Super Nintendo).
+    const ImVec2 f(min.x + size.x - px(44.0f), min.y + px(62.0f));
+    auto face = [&](float dx, float dy, int id, const char* label) {
+        const ImVec2 p(f.x + dx * px(15.0f), f.y + dy * px(15.0f));
+        dl->AddCircleFilled(p, px(9.0f), down(id) ? on : off, 20);
+        const ImVec2 ts = draw::measure(theme::Weight::Bold, 9.0f, label);
+        draw::text(dl, ImVec2(p.x - ts.x / 2, p.y - ts.y / 2), theme::Weight::Bold, 9.0f, IM_COL32(255, 255, 255, 220), label);
+    };
+    face(0, -1, RETRO_DEVICE_ID_JOYPAD_X, "X");
+    face(-1, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Y");
+    face(1, 0, RETRO_DEVICE_ID_JOYPAD_A, "A");
+    face(0, 1, RETRO_DEVICE_ID_JOYPAD_B, "B");
 }
 
 void App::drawSpeedrunOverlay()
@@ -2177,7 +2612,9 @@ void App::drawSpeedrunOverlay()
 
     // Pied : record, somme des meilleurs, et l'état (enregistrement, run assistée, touches).
     const float footY = y + px(60.0f);
-    const std::string stats = "PB " + speedrun::formatTime(cat->pb()) + "  ·  SoB " + speedrun::formatTime(cat->sumOfBest());
+    std::string stats = "PB " + speedrun::formatTime(cat->pb()) + "  ·  SoB " + speedrun::formatTime(cat->sumOfBest());
+    if (cat->worldRecord >= 0)
+        stats += "  ·  WR " + speedrun::formatTime(cat->worldRecord);
     draw::text(dl, ImVec2(min.x + pad, footY), Weight::SemiBold, 11.0f, muted, stats);
     std::string status;
     ImU32 statusColor = muted;

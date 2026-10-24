@@ -17,9 +17,12 @@
 //     les trouve par "diffusion" (un message envoyé à tout le réseau).
 //   - le code COMPLET : jusqu'à 5 adresses, pour les réseaux où la
 //     diffusion ne passe pas (Tailscale, par exemple).
+//   - le code PAR RELAIS : les adresses du relais d'un ami, le numéro du
+//     salon et un secret de chiffrement. L'adresse de l'hôte n'y est pas.
 
 #include "Socket.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -30,12 +33,24 @@ namespace net {
 struct Invite {
     uint32_t session = 0;            // numéro du salon
     std::vector<Address> candidates; // adresses où essayer de joindre ce PC
+    // Salon qui passe par le relais d'un ami : les adresses sont alors celles
+    // du RELAIS (jamais celle de l'hôte), et le secret donne la clé de
+    // chiffrement des paquets (voir Crypto.hpp).
+    bool relay = false;
+    std::array<uint8_t, 16> secret{};
 };
 
 std::string encodeInvite(const Invite& invite);
 // Le numéro de salon doit tenir sur 24 bits.
 std::string encodeShortInvite(uint32_t session, const Address& address);
-// Accepte les deux formats.
+// Accepte tous les formats (court, complet, par relais).
 std::optional<Invite> decodeInvite(const std::string& code);
+
+// Invitation d'un salon par relais : numéro du salon (32 bits), secret,
+// adresses du relais.
+std::string encodeRelayInvite(uint32_t room, const std::array<uint8_t, 16>& secret, const std::vector<Address>& relay);
+// Le "code du relais" qu'un ami donne à l'hôte : les adresses de son relais.
+std::string encodeRelayCode(const std::vector<Address>& relay);
+std::optional<std::vector<Address>> decodeRelayCode(const std::string& code);
 
 } // namespace net

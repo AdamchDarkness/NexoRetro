@@ -60,9 +60,21 @@ struct Settings {
     bool speedrunRecord = true;      // enregistrer une vidéo de chaque run
     int speedrunKeep = 1;            // vidéos gardées : 0 = toutes, 1 = runs terminées, 2 = records seulement
     bool speedrunResetGame = true;   // remettre le chrono à zéro (F9) relance aussi le jeu
+    int speedrunPadSplit = 8;        // bouton de manette (SDL) pour le split : 8 = clic du stick droit (R3), -1 = aucun
+    int speedrunPadReset = -1;       // ... pour la remise à zéro (-1 = aucun)
+    bool speedrunVideoOverlay = false; // le chrono (et les touches affichées) dans la vidéo
+    bool inputDisplay = false;       // afficher les touches appuyées pendant le jeu
+    // Contrôle parental (Paramètres > Contrôle parental)
+    bool parentalOn = false;
+    int parentalMinutes = 60;        // temps de jeu par jour
+    std::string parentalPin;         // empreinte du code (jamais le code lui-même)
+    int parentalDay = 0;             // jour compté (AAAAMMJJ)
+    int parentalUsed = 0;            // secondes jouées ce jour-là
+    int parentalBonus = 0;           // minutes accordées en plus ce jour-là (avec le code)
     // Jeu en ligne
     std::string nickname = "Joueur";
     bool netStats = false;      // ping et pertes affichés pendant la partie
+    bool netHeavyRollback = false; // rollback aussi pour les consoles lourdes (PS2, GameCube) : expérimental
     int voiceMode = 1;          // chat vocal : 0 = désactivé, 1 = micro ouvert, 2 = appuyer pour parler
     int voiceKey = 23;          // touche "appuyer pour parler" (code SDL : 23 = T)
     int voiceVolume = 100;      // volume des voix des autres, 0 à 200 %
@@ -82,4 +94,11 @@ struct Settings {
 
     // Durée de son maximale en attente, selon la latence choisie.
     double maxAudioQueue() const;
+
+    // Contrôle parental : un nouveau jour remet le compteur à zéro.
+    void rollParentalDay();
+    // Secondes de jeu qui restent aujourd'hui (très grand si le contrôle est coupé).
+    int parentalSecondsLeft() const;
+    // Le code parent, transformé en empreinte (c'est elle qui est enregistrée).
+    static std::string pinHash(const std::string& pin);
 };

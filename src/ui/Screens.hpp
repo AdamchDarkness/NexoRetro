@@ -22,6 +22,7 @@
 #include "../LibraryTools.hpp"
 #include "../PortableCopy.hpp"
 #include "../Speedrun.hpp"
+#include "../SpeedrunCom.hpp"
 #include "../Settings.hpp"
 #include "../UserData.hpp"
 #include "../VoiceChat.hpp"
@@ -101,6 +102,7 @@ struct UiContext {
     Input& input;
     Navigation& nav;
     net::Session& session;
+    net::RelayServer& relayServer;
     OnlineState& online;
     scrape::Scraper& scraper;
     ExternalInstaller& installer;
@@ -294,7 +296,9 @@ private:
     void drawHelp(float width);
     char m_salonName[48] = "";
     char m_hostPassword[48] = "";
-    char m_code[128] = "";         // code du salon à rejoindre
+    char m_code[192] = "";         // code du salon à rejoindre (un code par relais est plus long)
+    char m_relayCode[160] = "";    // code du relais d'un ami (héberger sans montrer son adresse)
+    bool m_useRelay = false;
     char m_joinPassword[48] = "";
     char m_answer[128] = "";       // code de réponse (côté hôte)
     char m_message[256] = "";      // message de chat en cours d'écriture
@@ -320,6 +324,9 @@ private:
     void drawUpdates(UiContext& ctx, float width);  // Nexo Retro lui-même : nouvelle version
     void drawAppearance(UiContext& ctx, float width, bool& changed); // thèmes, fond, police, sons
     void drawDuplicates(UiContext& ctx);                            // fenêtre "Doublons et versions"
+    void drawParental(UiContext& ctx, float width, bool& changed);  // contrôle parental
+    char m_pin[16] = "";
+    bool m_parentalUnlocked = false; // code parent donné (jusqu'à "Verrouiller" ou la fermeture)
     std::vector<library_tools::Duplicates> m_duplicates;
     bool m_openDuplicates = false;
     bool m_colorPending = false; // une couleur réglée à la souris, à enregistrer en lâchant
@@ -342,12 +349,19 @@ private:
 class SpeedrunScreen {
 public:
     void draw(UiContext& ctx);
+    // Fichiers LiveSplit (.lss) choisis dans les fenêtres de Windows.
+    void importSplits(UiContext& ctx, const std::filesystem::path& file);
+    void exportSplits(UiContext& ctx, const std::filesystem::path& file);
 
 private:
     void drawWelcome(UiContext& ctx, float width);
     void drawGame(UiContext& ctx, const Game& game, float width);
     void drawPicker(UiContext& ctx);
     void drawCategoryPopup(UiContext& ctx, speedrun::GameRuns& runs);
+    void drawOfficialPopup(UiContext& ctx, speedrun::GameRuns& runs, const Game& game);
+    SpeedrunCom m_official;                      // recherche sur speedrun.com
+    std::optional<SpeedrunCom::Result> m_officialResult;
+    bool m_openOfficial = false;
     std::filesystem::path m_game; // jeu affiché
     bool m_openPicker = false;
     bool m_openCategory = false;

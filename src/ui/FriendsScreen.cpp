@@ -125,10 +125,27 @@ void FriendsScreen::drawStart(UiContext& ctx, float inner)
     overline("CRÉER UN SALON");
     textField("##salonName", m_salonName, sizeof(m_salonName), ("Salon de " + ctx.settings.nickname).c_str(), 0.0f);
     textField("##hostPassword", m_hostPassword, sizeof(m_hostPassword), "Mot de passe (facultatif)", 0.0f);
-    if (button("Créer le salon", {.style = ButtonStyle::Primary, .icon = draw::Icon::Plus, .height = 46.0f, .width = -1.0f})) {
+    // Cacher son adresse IP : tout passe par le relais d'un ami (chiffré).
+    {
+        const ImVec2 r = ImGui::GetCursorPos();
+        text("Cacher mon adresse IP", 13.0f, Weight::Bold);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
+        text("Par le relais d'un ami, chiffré", 12.0f, Weight::Medium, theme::Muted);
+        const ImVec2 after = ImGui::GetCursorPos();
+        ImGui::SetCursorPos(ImVec2(r.x + inner - px(46.0f), r.y + px(4.0f)));
+        toggle("##useRelay", &m_useRelay);
+        ImGui::SetCursorPos(after);
+        if (m_useRelay)
+            textField("##relayCode", m_relayCode, sizeof(m_relayCode), "Code du relais de votre ami (RLY-...)", 0.0f);
+    }
+    if (button("Créer le salon", {.style = ButtonStyle::Primary, .icon = draw::Icon::Plus, .height = 46.0f, .width = -1.0f,
+                                  .disabled = m_useRelay && m_relayCode[0] == '\0'})) {
         session.setNickname(ctx.settings.nickname);
         ctx.online.chat.clear();
-        session.host(m_salonName, m_hostPassword);
+        if (m_useRelay)
+            session.hostViaRelay(m_salonName, m_hostPassword, m_relayCode);
+        else
+            session.host(m_salonName, m_hostPassword);
     }
     space(16.0f);
     overline("REJOINDRE UN AMI");
@@ -139,6 +156,29 @@ void FriendsScreen::drawStart(UiContext& ctx, float inner)
         session.setNickname(ctx.settings.nickname);
         ctx.online.chat.clear();
         session.join(m_code, m_joinPassword);
+    }
+    // Servir de relais : ce PC fait passer les parties d'amis qui veulent
+    // cacher leur adresse (il ne peut pas lire leurs paquets, chiffrés).
+    space(16.0f);
+    overline("SERVIR DE RELAIS");
+    net::RelayServer& relayServer = ctx.relayServer;
+    if (!relayServer.running()) {
+        textWrapped("Votre PC transmet les parties d'un ami sans pouvoir les lire : ses joueurs ne voient pas son adresse IP.",
+                    12.0f, Weight::Medium, theme::Muted, inner);
+        space(2.0f);
+        if (button("Ouvrir un relais", {.style = ButtonStyle::Outline, .icon = draw::Icon::Refresh, .height = 42.0f, .width = -1.0f}))
+            relayServer.start();
+    } else {
+        text(relayServer.status(), 13.0f, Weight::SemiBold, relayServer.ready() ? theme::Success : theme::Warning);
+        if (relayServer.ready()) {
+            text("Donnez ce code à l'hôte :", 12.0f, Weight::Medium, theme::Muted);
+            codeBox("relay", relayServer.code(), inner);
+            const std::string stats = std::to_string(relayServer.rooms()) + " salon(s) · " + std::to_string(relayServer.players()) +
+                                      " joueur(s) · " + formatSize(relayServer.bytesRelayed()) + " transmis";
+            text(stats, 12.0f, Weight::Medium, theme::Muted);
+        }
+        if (button("Fermer le relais", {.style = ButtonStyle::Ghost, .icon = draw::Icon::Close, .height = 40.0f}))
+            relayServer.stop();
     }
 }
 

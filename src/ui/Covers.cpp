@@ -14,6 +14,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
 #define STBI_ONLY_JPEG
+#define STBI_ONLY_BMP // (miniatures des emplacements de sauvegarde)
 #include <stb_image.h>
 
 #include <algorithm>
@@ -33,6 +34,37 @@ ImU32 Covers::colorFor(const Game& game)
 {
     const size_t hash = std::hash<std::string>{}(game.title);
     return theme::coverColor(hash);
+}
+
+void Covers::forget(const std::string& file)
+{
+    const auto it = m_textures.find(file);
+    if (it == m_textures.end())
+        return;
+    if (it->second.id)
+        glDeleteTextures(1, &it->second.id);
+    m_textures.erase(it);
+}
+
+unsigned Covers::createTexture(const uint8_t* rgba, int width, int height)
+{
+    GLuint id = 0;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D, id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    return id;
+}
+
+void Covers::deleteTexture(unsigned id)
+{
+    if (id)
+        glDeleteTextures(1, &id);
 }
 
 void Covers::releaseTextures()

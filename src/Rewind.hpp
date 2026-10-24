@@ -13,6 +13,7 @@
 // (le XOR, "ou exclusif", s'annule quand on l'applique deux fois).
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <string>
 
@@ -28,11 +29,17 @@ public:
     bool pop(std::string& out);
 
     size_t frames() const { return m_deltas.size(); }
+    // Numéros des photos gardées, comptés depuis le début (ils ne changent
+    // pas quand le passé le plus lointain est oublié) : la frise du retour
+    // en arrière s'en sert pour placer ses miniatures.
+    uint64_t newest() const { return m_newest; }
+    uint64_t oldest() const { return m_newest - m_deltas.size(); }
     size_t bytes() const { return m_bytes; }
 
 private:
     std::string m_current;            // la photo la plus récente, en entier
     std::deque<std::string> m_deltas; // différences compressées, de la plus ancienne à la plus récente
     size_t m_bytes = 0;               // mémoire occupée par les différences
+    uint64_t m_newest = 0;            // numéro de la photo actuelle
     size_t m_budget;
 };

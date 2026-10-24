@@ -271,6 +271,29 @@ community's feedback.
 game also starts it (Any% category). Everything is saved in `speedrun.txt` in the data folder (readable
 in Notepad, follows the portable copy). Not available during online play.
 
+- **Controller shortcuts**: pick the controller buttons for start/split and reset (L3, R3, Guide, Share,
+  touchpad) in the Speedrun tab.
+- **LiveSplit import/export** (`.lss`): your existing splits, personal best, best segments and attempt
+  count come in with one click, and go back out the same way.
+- **Official categories from speedrun.com** (its free public API): the real categories of the game with
+  their **world record** and its holder, shown in the tab and in the in-game timer (WR line).
+- **Timer in the video** (option): the recording keeps what's drawn over the game (timer, input display);
+  notifications are hidden while recording.
+- **Input display** (option): an on-screen controller shows the buttons you press, in every game.
+
+## Save slots and rewind timeline
+
+- **8 save slots per game** with a **thumbnail** of the moment and its date (pause menu → "Save slots").
+- **Rewind timeline**: while rewinding (Backspace, or Select + L), a strip at the bottom of the screen shows
+  thumbnails of the past (one per second), how far back you are, and where you started.
+
+## Parental control
+
+Settings → Parental control: a **daily play time** (15 min to 6 h), protected by a **parent code** (only
+its fingerprint is stored). Five minutes before the end a message warns; at the end the game is saved and
+Nexo Retro goes back to the library; no game starts until the next day unless a parent adds 15 or 30
+minutes with the code.
+
 ## Roadmap
 
 - [x] **Step 1**: load a core, display, sound, controllers, saves
@@ -325,6 +348,12 @@ in Notepad, follows the portable copy). Not available during online play.
 - [x] **Duplicates and multiple versions** detection (identical files, other regions), with one-click removal
 - [x] **Speedrun** tab: categories and splits, LiveSplit-style in-game timer, records and gold segments,
   run history, MP4 video of each run (see the Speedrun section)
+- [x] Speedrun: controller shortcuts, LiveSplit import/export, speedrun.com categories and world records,
+  timer in the video, input display
+- [x] **Save slots with thumbnails** and **rewind timeline**
+- [x] **Parental control** (daily play time, parent code)
+- [x] **Online play through a friend's encrypted relay** (your IP stays hidden)
+- [x] **Rollback for PS2 / GameCube** with differential states (experimental)
 - [ ] Copy-free Vulkan rendering (shared Vulkan/OpenGL image), for very high resolutions
 - [ ] **Friends list** (next update): serverless, through BitTorrent's decentralized directory
   (DHT, like the Tox messenger). Each player has a key, and their "friend code" is their public key;
@@ -489,6 +518,24 @@ Code: `src/net/Http.cpp` (HTTPS downloads with WinHTTP), `src/scrape/GameDatabas
 `.rdb` files and comparing names), `src/scrape/Scraper.cpp` (the thread and the cache).
 
 ## Online play: how it works
+
+### Without showing your IP: a friend's encrypted relay
+
+A friend opens a **relay** (Friends tab → "Open a relay") and gives you its `RLY-...` code. When you create
+your lobby with "Hide my IP address" and that code, everything goes through their PC: players only know
+the relay's address, never yours, and you never see theirs. Packets are **encrypted end to end**
+(AES-256-GCM, key derived from a random secret in the invite code, computed by Windows' BCrypt): the relay
+forwards them without being able to read or change them. It also helps when two routers refuse to talk
+directly. Tested on one PC (relay + host + player, real game): 0 desyncs.
+
+### Rollback for heavy consoles (experimental)
+
+PS2 or GameCube states weigh tens of MB: keeping one per frame for rollback was out of the question, so
+these consoles used delay mode. With Settings → Online play → "Rollback for PS2 and GameCube", the rollback
+ring keeps **differential states** instead: one full "key" state every 30 frames, and for each frame only
+its XOR difference with it, compressed (a few KB). The depth is limited (3 to 6 frames) and every player
+needs a fast PC. Verified with forced differential states on GBA (0 desyncs); not yet tested on a real PS2
+game.
 
 There is **no server and no database**: the host's emulator is the room.
 

@@ -114,7 +114,7 @@ std::string Session::packet(Packet type, const std::string& payload) const
 void Session::send(const Address& to, Packet type, const std::string& payload)
 {
     const std::string p = packet(type, payload);
-    m_socket.sendTo(to, p.data(), p.size());
+    sendRaw(to, p.data(), p.size());
     if (debugLog() && type != Packet::Frame && type != Packet::Voice) // 50 à 60 par seconde : trop bavard
         SDL_Log("[net] -> %s type %d (%zu o)", to.toString().c_str(), static_cast<int>(type), p.size());
 }
@@ -158,7 +158,7 @@ void Session::serviceLink(Link& link, Uint64 now)
         if (budget == 0)
             break;
         if (now - msg.lastSent > kResendMs) {
-            m_socket.sendTo(link.addr, msg.packet.data(), msg.packet.size());
+            sendRaw(link.addr, msg.packet.data(), msg.packet.size());
             msg.lastSent = now;
             --budget;
         }
@@ -315,6 +315,129 @@ std::vector<Address> Session::ownCandidates() const
     return list;
 }
 
+void Session::sendRaw(const Address& to, const void* data, size_t size)
+{
+    if (m_relay && to.ip == relay::kVirtualIp) {
+        // Chiffré de bout en bout, puis confié au relais avec la place du
+        // destinataire (côté hôte) ; un joueur n'écrit qu'à l'hôte (place 0).
+        const std::string sealed = m_crypto.seal(std::string(static_cast<const char*>(data), size));
+        const uint8_t slot = m_isHost ? static_cast<uint8_t>(to.port) : 0;
+        const std::string p = relay::packet(relay::Op::Data, m_room, slot, sealed);
+        if (m_relayAddr)
+            m_socket.sendTo(*m_relayAddr, p.data(), p.size());
+        else
+            for (const Address& a : m_relayCandidates) // (on ne sait pas encore laquelle répond)
+                m_socket.sendTo(a, p.data(), p.size());
+        return;
+    }
+    m_socket.sendTo(to, data, size);
+}
+
+void Session::handleRelayPacket(const Address& from, const uint8_t* data, size_t size)
+{
+    // Seulement ce qui vient du relais, pour notre salon.
+    if (std::find(m_relayCandidates.begin(), m_relayCandidates.end(), from) == m_relayCandidates.end() &&
+        !(m_relayAddr && *m_relayAddr == from))
+        return;
+    const auto op = static_cast<relay::Op>(data[4]);
+    const uint32_t room = read32(data + 5);
+    const uint8_t slot = data[9];
+    if (room != m_room)
+        return;
+    switch (op) {
+    case relay::Op::Registered:
+        if (m_isHost) {
+            if (!m_relayRegistered)
+                detail("Relais joint : " + from.toString());
+            m_relayAddr = from;
+            m_relayRegistered = true;
+        }
+        break;
+    case relay::Op::NoRoom:
+        if (!m_isHost && m_state == State::Joining)
+            closeSalon("Ce salon n'existe pas (ou plus) sur le relais");
+        break;
+    case relay::Op::Data: {
+        std::string plain;
+        if (!m_crypto.open(data + relay::kHeader, size - relay::kHeader, plain)) {
+            detail("Paquet du relais rejeté (chiffrement invalide)");
+            return;
+        }
+        if (!m_isHost && !m_relayAddr)
+            m_relayAddr = from;
+        const Address virtualFrom{relay::kVirtualIp, m_isHost ? static_cast<uint16_t>(slot) : relay::kHostPort};
+        handlePacket(virtualFrom, reinterpret_cast<const uint8_t*>(plain.data()), plain.size());
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void Session::updateRelayHost(Uint64 now)
+{
+    // Se déclarer au relais (toutes les 500 ms au début, puis toutes les 3 s
+    // pour garder le salon en vie).
+    const Uint64 interval = m_relayRegistered ? 3000 : 500;
+    if (now - m_lastRegister > interval) {
+        const std::string p = relay::packet(relay::Op::Register, m_room, 0);
+        if (m_relayAddr)
+            m_socket.sendTo(*m_relayAddr, p.data(), p.size());
+        else
+            for (const Address& a : m_relayCandidates)
+                m_socket.sendTo(a, p.data(), p.size());
+        m_lastRegister = now;
+    }
+    if (m_state != State::Preparing)
+        return;
+    if (m_relayRegistered) {
+        // Le code d'invitation : les adresses du relais, le salon, le secret. Pas la nôtre.
+        std::vector<Address> relayList;
+        relayList.push_back(*m_relayAddr);
+        for (const Address& a : m_relayCandidates)
+            if (!(a == *m_relayAddr))
+                relayList.push_back(a);
+        m_inviteCode = encodeRelayInvite(m_room, m_secret, relayList);
+        m_fullInviteCode = m_inviteCode;
+        setState(State::Hosting);
+        rebuildMembers();
+        event(Event::Type::Joined, "Salon « " + m_salonName + " » prêt (par relais) : partagez le code");
+    } else if (now - m_stateSince > 8000) {
+        closeSalon("Le relais ne répond pas : vérifiez son code, et qu'il est toujours ouvert");
+    }
+}
+
+bool Session::hostViaRelay(const std::string& salonName, const std::string& password, const std::string& relayCode)
+{
+    const std::optional<std::vector<Address>> relayList = decodeRelayCode(relayCode);
+    if (!relayList) {
+        event(Event::Type::Error, "Ce code de relais n'est pas valide");
+        return false;
+    }
+    if (!openSocket(false))
+        return false;
+    m_isHost = true;
+    m_relay = true;
+    m_relayCandidates = *relayList;
+    m_relayAddr.reset();
+    m_relayRegistered = false;
+    m_lastRegister = 0;
+    randomBytes(&m_room, sizeof(m_room));
+    if (m_room == 0)
+        m_room = 1;
+    randomBytes(m_secret.data(), m_secret.size());
+    m_crypto.init(m_secret);
+    m_sessionId = (m_room & 0xFFFFFF) ? (m_room & 0xFFFFFF) : 1;
+    m_passwordHash = password.empty() ? 0 : Hasher64::of(password, m_sessionId);
+    m_salonName = salonName.empty() ? "Salon de " + m_nickname : salonName.substr(0, 40);
+    m_selfId = 0;
+    m_stun.reset();
+    m_stunDone = true;
+    setState(State::Preparing);
+    detail("Connexion au relais…");
+    return true;
+}
+
 bool Session::host(const std::string& salonName, const std::string& password)
 {
     if (!openSocket(true))
@@ -346,6 +469,25 @@ bool Session::join(const std::string& code, const std::string& password)
     if (!openSocket(false))
         return false;
     m_isHost = false;
+    if (invite->relay) {
+        // Salon par relais : on ne connaît que le relais ; l'hôte est "virtuel".
+        m_relay = true;
+        m_room = invite->session;
+        m_secret = invite->secret;
+        m_crypto.init(m_secret);
+        m_relayCandidates = invite->candidates;
+        m_relayAddr.reset();
+        m_sessionId = (m_room & 0xFFFFFF) ? (m_room & 0xFFFFFF) : 1;
+        m_passwordHash = password.empty() ? 0 : Hasher64::of(password, m_sessionId);
+        m_nonce = SDL_rand_bits() | 1;
+        m_targets = {Address{relay::kVirtualIp, relay::kHostPort}};
+        m_lanTargets.clear();
+        m_stun.reset();
+        m_stunDone = true;
+        setState(State::Joining);
+        detail("Connexion par le relais (" + std::to_string(m_relayCandidates.size()) + " adresse(s))");
+        return true;
+    }
     m_sessionId = invite->session;
     m_passwordHash = password.empty() ? 0 : Hasher64::of(password, m_sessionId);
     m_nonce = SDL_rand_bits() | 1;
@@ -390,6 +532,11 @@ void Session::leave()
         send(m_hostLink.addr, Packet::Bye);
 
     m_socket.close();
+    m_relay = false;
+    m_relayCandidates.clear();
+    m_relayAddr.reset();
+    m_relayRegistered = false;
+    m_crypto.reset();
     m_upnp.reset(); // referme le port sur la box
     m_upnpReported = false;
     m_stun.reset();
@@ -467,7 +614,7 @@ void Session::kick(uint8_t memberId)
     const uint32_t seq = link.nextSeq++;
     const std::string p = packet(Packet::Reliable, ByteWriter().u32(seq).u8(static_cast<uint8_t>(Kind::Kick)).data());
     for (int i = 0; i < 3; ++i)
-        m_socket.sendTo(link.addr, p.data(), p.size());
+        sendRaw(link.addr, p.data(), p.size());
     removePeer(memberId, it->second.name + " a été retiré du salon");
 }
 
@@ -584,6 +731,12 @@ void Session::update()
     uint8_t buffer[2048];
     Address from;
     while (size_t n = m_socket.receive(from, buffer, sizeof(buffer))) {
+        if (m_relay && n >= relay::kHeader && std::memcmp(buffer, relay::kMagic, 4) == 0) {
+            handleRelayPacket(from, buffer, n);
+            if (m_state == State::Idle)
+                return;
+            continue;
+        }
         if (StunRequest::looksLikeStun(buffer, n)) {
             if (m_stun && !m_publicAddress)
                 if (auto a = m_stun->parseResponse(buffer, n)) {
@@ -598,7 +751,10 @@ void Session::update()
             return; // le salon vient d'être fermé
     }
 
-    updatePreparation();
+    if (m_relay && m_isHost)
+        updateRelayHost(SDL_GetTicks());
+    else
+        updatePreparation();
 
     // On lit l'heure APRÈS avoir traité les paquets reçus. Sinon,
     // "maintenant - dernier paquet reçu" peut valoir -1 ms... et sur un
@@ -623,7 +779,7 @@ void Session::update()
             if ((now / kProbeIntervalMs) % 2 == 0) {
                 const std::string p = packet(Packet::Hello, hello);
                 for (const Address& a : m_lanTargets)
-                    m_socket.sendTo(a, p.data(), p.size());
+                    sendRaw(a, p.data(), p.size());
             }
             m_lastProbe = now;
         }
@@ -686,7 +842,7 @@ void Session::handlePacket(const Address& from, const uint8_t* data, size_t size
             m_hostLink.lastReceived = SDL_GetTicks();
             m_targets.clear();
             setState(State::InSalon);
-            detail("Relié à " + from.toString());
+            detail(m_relay ? std::string("Relié par le relais (adresse de l'hôte cachée)") : "Relié à " + from.toString());
             event(Event::Type::Joined, "Vous avez rejoint « " + m_salonName + " »");
         }
         break;

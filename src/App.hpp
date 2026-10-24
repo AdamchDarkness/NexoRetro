@@ -9,6 +9,7 @@
 #include "Discord.hpp"
 #include "PortableCopy.hpp"
 #include "Speedrun.hpp"
+#include "SpeedrunCom.hpp"
 #include "VideoRecorder.hpp"
 #include "FileDialogs.hpp"
 #include "FileHasher.hpp"
@@ -65,7 +66,12 @@ struct AppOptions {
     std::filesystem::path importBios; // --import-bios <fichier, dossier ou .zip> : comme un dépôt sur l'écran BIOS
     std::filesystem::path exportLibrary; // --export-library <fichier.csv|.html>
     std::string testSpeedrun;            // --test-speedrun 60,200,400 : F5 à ces tours de boucle du jeu
-    bool netTestNight = false;           // --net-night : soirée jeu de test (hôte)
+    bool netTestNight = false;
+    std::filesystem::path testLss;     // --test-lss <fichier.lss> : import puis export LiveSplit (journal)
+    std::string testSrcom;             // --test-srcom "<jeu>" : recherche speedrun.com (journal)
+    bool openSlots = false;            // --slots : ouvre les emplacements de sauvegarde (avec --menu)
+    std::filesystem::path netTestRelay;     // --net-relay <fichier> : servir de relais, code écrit dans ce fichier
+    std::filesystem::path netTestRelayCode; // --net-relay-code <fichier> : héberger par ce relais           // --net-night : soirée jeu de test (hôte)
     bool testDuplicates = false;         // --test-duplicates : affiche les doublons dans le journal
     std::filesystem::path portableCopy; // --portable-copy <dossier> : comme le bouton des Paramètres
     std::vector<std::filesystem::path> drop; // --drop <fichier> : comme un glisser-déposer (répétable)
@@ -134,7 +140,18 @@ private:
     void drawControlsScreen(); // menu pause > Commandes de la console
     void captureRewind();      // photo de l'image qui vient d'être calculée (retour en arrière)
     void drawSpeedrunOverlay(); // chrono et splits en jeu (mode speedrun)
+    void drawInputDisplay();    // les touches appuyées, à l'écran (réglage)
+    // Emplacements de sauvegarde (8 par jeu), avec une miniature de l'image.
+    void drawSlotsScreen();
+    void saveSlot(int slot);
+    void loadSlot(int slot);
+    std::filesystem::path slotFile(int slot, const char* extension) const;
+    // Frise du retour en arrière : une miniature de l'image toutes les secondes.
+    void captureRewindThumbnail();
+    void clearRewindThumbnails();
+    void drawRewindTimeline();
     void updateSpeedrun();      // raccourcis du chrono, début et fin de l'enregistrement vidéo
+    void updateParental();      // contrôle parental : temps de jeu du jour
     void speedrunKey(SDL_Keycode key);
     void drawTimeBadge();      // "Avance rapide x4" / "Retour en arrière" à l'écran
     void saveState();
@@ -165,6 +182,7 @@ private:
     ui::PauseMenu m_pauseMenu;
     net::NetworkSystem m_network; // avant m_session : le réseau doit exister plus longtemps
     net::Session m_session;
+    net::RelayServer m_relayServer;             // relais proposé à des amis (écran Amis)
     net::Netplay m_netplay;
     net::LinkPlay m_link;                       // câble link : chacun sa console
     std::unique_ptr<net::LinkTunnel> m_tunnel;  // câble Game Boy : le relais
@@ -189,8 +207,22 @@ private:
     speedrun::Speedrun m_speedrun; // chrono, splits et records des speedrunners
     VideoRecorder m_recorder;      // vidéo MP4 des runs
     uint64_t m_emuFrames = 0;      // images d'émulation calculées (dates de la vidéo)
-    int m_testSpeedrunLoop = -1;   // --test-speedrun : dernier tour où F5 a été "appuyée"
+    int m_testSpeedrunLoop = -1;
+    bool m_netTestRelayWritten = false; // --net-relay : code du relais écrit
+    SpeedrunCom m_testSrcom;            // --test-srcom   // --test-speedrun : dernier tour où F5 a été "appuyée"
+    Uint64 m_parentalTick = 0;     // dernière seconde comptée
+    bool m_parentalWarned = false; // "Plus que 5 minutes" déjà dit pour cette partie
     bool m_controlsOpen = false;   // écran "Commandes" ouvert dans le menu pause
+    bool m_slotsOpen = false;      // écran "Emplacements de sauvegarde" ouvert dans le menu pause
+    int m_pendingSlot = -1;        // emplacement à sauvegarder à la prochaine image (miniature comprise)
+    struct RewindThumb {
+        uint64_t index = 0;  // numéro de la photo du retour en arrière
+        unsigned texture = 0;
+        int width = 0;
+        int height = 0;
+    };
+    std::deque<RewindThumb> m_rewindThumbs;
+    uint64_t m_rewindFrom = 0;     // où en était le jeu quand le retour en arrière a commencé
     int m_testMenuFrames = 0;      // --menu : images jouées avant d'ouvrir le menu
     // Retour en arrière et avance rapide.
     Rewind m_rewind;

@@ -16,7 +16,8 @@
 // Ce que l'utilisateur voulait faire en ouvrant la fenêtre.
 enum class DialogPurpose { AddGameFiles, AddGameFolder, AddBiosFile, AddBiosFolder, ChooseCover, ImportSave, ChooseExternal, ImportSystemFiles,
                            ChooseBackground, ChooseFont, ExportBios, ImportBios, MakePortable,
-                           ExportLibraryCsv, ExportLibraryHtml, ChooseSpeedrunFolder };
+                           ExportLibraryCsv, ExportLibraryHtml, ChooseSpeedrunFolder,
+                           ImportSplits, ExportSplits };
 
 struct DialogResult {
     DialogPurpose purpose;
@@ -32,6 +33,8 @@ public:
     // Une archive .zip à ouvrir, ou à créer ("Enregistrer sous", avec un nom
     // proposé).
     void openZip(SDL_Window* window, DialogPurpose purpose);
+    // Un fichier d'un type précis (extension sans le point : "lss").
+    void openFile(SDL_Window* window, DialogPurpose purpose, const char* filterName, const char* extension);
     void saveZip(SDL_Window* window, DialogPurpose purpose, const std::string& suggestedName);
     // "Enregistrer sous" pour un autre type de fichier (extension sans le point : "csv").
     void saveFile(SDL_Window* window, DialogPurpose purpose, const std::string& suggestedName, const char* filterName,
@@ -44,6 +47,7 @@ private:
     struct Request {
         FileDialogs* owner;
         DialogPurpose purpose;
+        SDL_DialogFileFilter filter{}; // (textes littéraux : ils vivent tout le programme)
     };
     static void SDLCALL onResult(void* userdata, const char* const* files, int filter);
 

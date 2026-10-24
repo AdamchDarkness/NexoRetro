@@ -123,6 +123,8 @@ void Ui::drawNotifications()
     const Uint64 now = SDL_GetTicks();
     // [C++20] std::erase_if retire du vector tous les éléments qui vérifient la condition.
     std::erase_if(m_notifications, [now](const Notification& n) { return now - n.createdAt > kNotificationMs; });
+    if (m_notificationsHidden)
+        return;
 
     // Des pilules blanches empilées en haut à droite, qui s'effacent en fondu.
     ImDrawList* dl = ImGui::GetForegroundDrawList();

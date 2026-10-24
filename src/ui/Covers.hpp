@@ -53,6 +53,13 @@ public:
     // Les textures appartiennent au contexte OpenGL : il faut les libérer
     // avant que l'émulateur ne le détruise (au lancement d'un jeu).
     void releaseTextures();
+    // Oublie une image du cache (le fichier vient d'être remplacé : miniature
+    // d'un emplacement de sauvegarde).
+    void forget(const std::string& file);
+    // Une texture OpenGL faite de pixels RGBA (miniatures de la frise du
+    // retour en arrière), à libérer avec deleteTexture().
+    static unsigned createTexture(const uint8_t* rgba, int width, int height);
+    static void deleteTexture(unsigned id);
 
 private:
     struct Texture {

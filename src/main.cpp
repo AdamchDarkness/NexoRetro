@@ -146,6 +146,16 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
             out.exportLibrary = fromUtf8(argv[++i]);
         else if (arg == "--test-speedrun" && i + 1 < argc)
             out.testSpeedrun = argv[++i];
+        else if (arg == "--net-relay" && i + 1 < argc)
+            out.netTestRelay = fromUtf8(argv[++i]);
+        else if (arg == "--net-relay-code" && i + 1 < argc)
+            out.netTestRelayCode = fromUtf8(argv[++i]);
+        else if (arg == "--test-lss" && i + 1 < argc)
+            out.testLss = fromUtf8(argv[++i]);
+        else if (arg == "--test-srcom" && i + 1 < argc)
+            out.testSrcom = argv[++i];
+        else if (arg == "--slots")
+            out.openSlots = true;
         else if (arg == "--net-night")
             out.netTestNight = true;
         else if (arg == "--test-duplicates")

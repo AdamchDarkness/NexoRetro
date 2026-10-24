@@ -306,6 +306,12 @@ void Shell::onDialogResult(UiContext& ctx, const DialogResult& result)
                        : library_tools::exportHtml(ctx.library.games(), ctx.userData, ctx.scraper, file));
         break;
     }
+    case DialogPurpose::ImportSplits:
+        m_speedrun.importSplits(ctx, result.paths.front());
+        break;
+    case DialogPurpose::ExportSplits:
+        m_speedrun.exportSplits(ctx, result.paths.front());
+        break;
     case DialogPurpose::ChooseSpeedrunFolder:
         ctx.settings.speedrunFolder = toUtf8(result.paths.front());
         ctx.settingsChanged();

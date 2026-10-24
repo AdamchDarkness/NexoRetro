@@ -178,10 +178,10 @@ void SpeedrunScreen::drawGame(UiContext& ctx, const Game& game, float width)
     bool changed = false;
 
     // --- En-tête : jaquette, nom, catégories, bouton de lancement.
-    beginCard("##srHead", ImVec2(width, px(176.0f)), 22.0f);
+    beginCard("##srHead", ImVec2(width, px(262.0f)), 22.0f);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 p = ImGui::GetCursorScreenPos();
-    const float coverH = px(132.0f);
+    const float coverH = px(212.0f);
     const float coverW = coverH * 0.75f;
     ctx.covers.draw(dl, p, ImVec2(p.x + coverW, p.y + coverH), game, ctx.userData, px(10.0f), 12.0f);
     ImGui::SetCursorScreenPos(ImVec2(p.x + coverW + px(20.0f), p.y));
@@ -206,6 +206,33 @@ void SpeedrunScreen::drawGame(UiContext& ctx, const Game& game, float width)
     if (iconButton("##addCat", draw::Icon::Plus, ButtonStyle::Outline, 34.0f, "Nouvelle catégorie")) {
         m_categoryName[0] = '\0';
         m_openCategory = true;
+    }
+    space(4.0f);
+    // Le record du monde de la catégorie officielle (speedrun.com).
+    if (cat.worldRecord >= 0) {
+        text("Record du monde : " + speedrun::formatTime(cat.worldRecord) + (cat.worldRecordBy.empty() ? "" : " par " + cat.worldRecordBy),
+             13.0f, Weight::SemiBold, theme::Body);
+        if (!cat.officialLink.empty()) {
+            sameLine(10.0f);
+            if (link("Voir le classement", 13.0f))
+                SDL_OpenURL(cat.officialLink.c_str());
+        }
+    } else {
+        text("Pas de catégorie officielle liée : cherchez-la sur speedrun.com.", 13.0f, Weight::Medium, theme::Muted);
+    }
+    space(4.0f);
+    if (button("Importer (LiveSplit)", {.style = ButtonStyle::Soft, .icon = draw::Icon::Upload, .height = 34.0f, .fontSize = 12.0f}))
+        ctx.openDialog(DialogPurpose::ImportSplits);
+    sameLine(6.0f);
+    if (button("Exporter .lss", {.style = ButtonStyle::Soft, .height = 34.0f, .fontSize = 12.0f}))
+        ctx.openDialog(DialogPurpose::ExportSplits);
+    sameLine(6.0f);
+    if (button(m_official.busy() ? "Recherche…" : "Catégories officielles",
+               {.style = ButtonStyle::Soft, .icon = draw::Icon::Search, .height = 34.0f, .fontSize = 12.0f,
+                .disabled = m_official.busy(), .tooltip = "Les catégories et records du monde de speedrun.com"})) {
+        m_officialResult.reset();
+        m_official.search(game.title);
+        m_openOfficial = true;
     }
     ImGui::EndGroup();
     // Lancer la run : le jeu démarre du début, chrono affiché, prêt pour F5.
@@ -399,7 +426,7 @@ void SpeedrunScreen::drawGame(UiContext& ctx, const Game& game, float width)
     // --- Réglages : vidéo, dossier, compteur.
     Settings& s = ctx.settings;
     bool settingsChanged = false;
-    beginCard("##srOptions", ImVec2(width, px(330.0f)), 22.0f);
+    beginCard("##srOptions", ImVec2(width, px(560.0f)), 22.0f);
     {
         const float inner = ImGui::GetContentRegionAvail().x;
         text("Enregistrement et réglages", 16.0f, Weight::ExtraBold);
@@ -433,6 +460,30 @@ void SpeedrunScreen::drawGame(UiContext& ctx, const Game& game, float width)
             if (button("Ouvrir", {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f, .fontSize = 13.0f}))
                 openFolder(folder);
         });
+        row("Le chrono dans la vidéo", "La vidéo garde ce qui est affiché par-dessus le jeu (chrono, touches)", px(46.0f),
+            [&] { settingsChanged |= toggle("##overlayVideo", &s.speedrunVideoOverlay, !s.speedrunRecord); });
+        row("Afficher les touches (input display)", "Une manette à l'écran montre les boutons appuyés, dans tous les jeux",
+            px(46.0f), [&] { settingsChanged |= toggle("##inputDisplay", &s.inputDisplay); });
+        // Les boutons de la manette qui commandent le chrono (aucun par défaut
+        // pour la remise à zéro : un appui malencontreux coûterait la run).
+        static const char* const padNames[] = {"Aucun", "Clic stick gauche (L3)", "Clic stick droit (R3)", "Bouton central",
+                                               "Bouton Partage / Capture", "Pavé tactile"};
+        static const int padButtons[] = {-1, SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_RIGHT_STICK, SDL_GAMEPAD_BUTTON_GUIDE,
+                                         SDL_GAMEPAD_BUTTON_MISC1, SDL_GAMEPAD_BUTTON_TOUCHPAD};
+        auto padRow = [&](const char* label, const char* id, int* value) {
+            int current = 0;
+            for (int i = 0; i < 6; ++i)
+                if (padButtons[i] == *value)
+                    current = i;
+            row(label, "Bouton de la manette, pendant le jeu", px(240.0f), [&] {
+                if (combo(id, padNames, &current, 240.0f)) {
+                    *value = padButtons[current];
+                    settingsChanged = true;
+                }
+            });
+        };
+        padRow("Manette : départ et split", "##padSplit", &s.speedrunPadSplit);
+        padRow("Manette : remise à zéro", "##padReset", &s.speedrunPadReset);
         row("Remettre le jeu à zéro avec le chrono", "F9 relance aussi le jeu depuis le début : chaque essai part du même point",
             px(46.0f), [&] { settingsChanged |= toggle("##resetGame", &s.speedrunResetGame); });
         // Le compteur d'essais à zéro (le record et l'historique restent) : deux clics.
@@ -458,6 +509,140 @@ void SpeedrunScreen::drawGame(UiContext& ctx, const Game& game, float width)
     space(20.0f);
 
     drawCategoryPopup(ctx, runs);
+    drawOfficialPopup(ctx, runs, game);
+}
+
+void SpeedrunScreen::importSplits(UiContext& ctx, const fs::path& file)
+{
+    const Game* game = m_game.empty() ? nullptr : ctx.library.find(m_game);
+    if (!game) {
+        ctx.notify("Choisissez d'abord un jeu");
+        return;
+    }
+    speedrun::Category imported;
+    std::string gameName;
+    std::string error;
+    if (!speedrun::importLss(file, imported, gameName, error)) {
+        ctx.notify(error);
+        return;
+    }
+    // Une catégorie du même nom est remplacée (ses runs déjà faites ici restent).
+    speedrun::GameRuns& runs = ctx.speedrun.game(game->path);
+    auto same = std::find_if(runs.categories.begin(), runs.categories.end(),
+                             [&](const speedrun::Category& c) { return c.name == imported.name; });
+    if (same != runs.categories.end()) {
+        imported.history = std::move(same->history);
+        imported.finished = same->finished;
+        imported.worldRecord = same->worldRecord;
+        imported.worldRecordBy = same->worldRecordBy;
+        imported.officialLink = same->officialLink;
+        *same = std::move(imported);
+        runs.current = static_cast<int>(same - runs.categories.begin());
+    } else {
+        runs.categories.push_back(std::move(imported));
+        runs.current = static_cast<int>(runs.categories.size()) - 1;
+    }
+    ctx.speedrun.save();
+    const speedrun::Category& cat = runs.category();
+    ctx.notify(std::to_string(cat.segments.size()) + " splits importés : " + cat.name);
+}
+
+void SpeedrunScreen::exportSplits(UiContext& ctx, const fs::path& file)
+{
+    const Game* game = m_game.empty() ? nullptr : ctx.library.find(m_game);
+    if (!game)
+        return;
+    fs::path out = file;
+    if (out.extension().empty())
+        out += ".lss";
+    const speedrun::Category& cat = ctx.speedrun.game(game->path).category();
+    ctx.notify(speedrun::exportLss(out, cat, game->title) ? "Splits exportés : " + toUtf8(out.filename())
+                                                          : "Impossible d'écrire " + toUtf8(out.filename()));
+}
+
+void SpeedrunScreen::drawOfficialPopup(UiContext& ctx, speedrun::GameRuns& runs, const Game& game)
+{
+    if (m_openOfficial) {
+        ImGui::OpenPopup("##srOfficial");
+        m_openOfficial = false;
+    }
+    if (!m_officialResult)
+        m_officialResult = m_official.take();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(px(620.0f), std::min(px(560.0f), viewport->Size.y - px(32.0f))));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, theme::Surface);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, px(28.0f, 28.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, px(28.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+    if (ImGui::BeginPopupModal("##srOfficial", nullptr, ImGuiWindowFlags_NoDecoration)) {
+        const float width = ImGui::GetContentRegionAvail().x;
+        const ImVec2 top = ImGui::GetCursorPos();
+        text("Catégories officielles", 22.0f, Weight::ExtraBold);
+        text(m_officialResult && !m_officialResult->gameName.empty() ? m_officialResult->gameName + " · speedrun.com"
+                                                                      : game.title + " · speedrun.com",
+             13.0f, Weight::Medium, theme::Muted);
+        const ImVec2 after = ImGui::GetCursorPos();
+        ImGui::SetCursorPos(ImVec2(top.x + width - px(40.0f), top.y));
+        if (iconButton("##close", draw::Icon::Close, ButtonStyle::Soft, 40.0f))
+            ImGui::CloseCurrentPopup();
+        ImGui::SetCursorPos(after);
+        space(6.0f);
+        if (!m_officialResult) {
+            text("Recherche sur speedrun.com…", 14.0f, Weight::SemiBold, theme::Body);
+        } else if (!m_officialResult->error.empty()) {
+            textWrapped(m_officialResult->error, 14.0f, Weight::SemiBold, theme::Warning, width);
+            space(4.0f);
+            textWrapped("Le nom du jeu doit être proche de celui de speedrun.com (renommez le jeu dans sa fiche au besoin).", 12.0f,
+                        Weight::Medium, theme::Muted, width);
+        } else {
+            ImGui::BeginChild("##cats", ImVec2(0, 0));
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float rowW = ImGui::GetContentRegionAvail().x;
+            for (size_t i = 0; i < m_officialResult->categories.size(); ++i) {
+                const SpeedrunCom::OfficialCategory& oc = m_officialResult->categories[i];
+                ImGui::PushID(static_cast<int>(i));
+                const ImVec2 r = ImGui::GetCursorScreenPos();
+                draw::rect(dl, r, ImVec2(r.x + rowW, r.y + px(58.0f)), theme::Ground, px(12.0f));
+                draw::textEllipsis(dl, ImVec2(r.x + px(14.0f), r.y + px(10.0f)), Weight::Bold, 14.0f, theme::Ink, oc.name,
+                                   rowW - px(170.0f));
+                const std::string wr = oc.wrMs >= 0 ? "WR " + speedrun::formatTime(oc.wrMs) + (oc.wrBy.empty() ? "" : " · " + oc.wrBy)
+                                                    : std::string("Pas encore de record");
+                draw::textEllipsis(dl, ImVec2(r.x + px(14.0f), r.y + px(32.0f)), Weight::Medium, 12.0f, theme::Muted, wr,
+                                   rowW - px(170.0f));
+                auto existing = std::find_if(runs.categories.begin(), runs.categories.end(),
+                                             [&](const speedrun::Category& c) { return c.name == oc.name; });
+                ImGui::SetCursorScreenPos(ImVec2(r.x + rowW - px(140.0f), r.y + px(11.0f)));
+                if (button(existing != runs.categories.end() ? "Mettre à jour" : "Ajouter",
+                           {.style = ButtonStyle::Outline, .height = 36.0f, .width = 126.0f, .fontSize = 12.0f})) {
+                    speedrun::Category* target = nullptr;
+                    if (existing != runs.categories.end()) {
+                        target = &*existing;
+                    } else {
+                        // (Le "Any%" vide créé d'office est remplacé plutôt que gardé à côté.)
+                        speedrun::Category c;
+                        c.name = oc.name;
+                        c.segments.push_back({"Fin"});
+                        runs.categories.push_back(std::move(c));
+                        target = &runs.categories.back();
+                    }
+                    target->worldRecord = oc.wrMs;
+                    target->worldRecordBy = oc.wrBy;
+                    target->officialLink = oc.weblink;
+                    runs.current = static_cast<int>(target - runs.categories.data());
+                    ctx.speedrun.save();
+                    ctx.notify("Catégorie officielle : " + oc.name);
+                }
+                ImGui::SetCursorScreenPos(r);
+                ImGui::Dummy(ImVec2(rowW, px(58.0f)));
+                ImGui::PopID();
+            }
+            ImGui::EndChild();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor();
 }
 
 void SpeedrunScreen::drawCategoryPopup(UiContext& ctx, speedrun::GameRuns& runs)

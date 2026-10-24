@@ -5,9 +5,12 @@
 #include "Utf8.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 
 namespace fs = std::filesystem;
@@ -19,6 +22,7 @@ namespace speedrun {
 //   cat   <nom>  <essais>  <terminées>
 //   seg   <nom>  <temps de passage du PB>  <meilleur segment>
 //   run   <date>  <temps final>  <splits faits>  <assistée 0/1>  <vidéo>  <passages séparés par des virgules>
+//   wr    <record du monde>  <son auteur>  <page speedrun.com>     (catégorie officielle)
 // Chaque ligne se rattache à la dernière ligne "game" (ou "cat") au-dessus.
 
 long long Category::sumOfBest() const
@@ -101,6 +105,10 @@ void Speedrun::load()
             cat->finished = std::atoi(f[3].c_str());
         } else if (f[0] == "seg" && f.size() >= 4 && cat) {
             cat->segments.push_back({f[1], std::atoll(f[2].c_str()), std::atoll(f[3].c_str())});
+        } else if (f[0] == "wr" && f.size() >= 4 && cat) {
+            cat->worldRecord = std::atoll(f[1].c_str());
+            cat->worldRecordBy = f[2];
+            cat->officialLink = f[3];
         } else if (f[0] == "run" && f.size() >= 6 && cat) {
             Run r;
             r.date = std::atoll(f[1].c_str());
@@ -130,6 +138,8 @@ void Speedrun::save() const
             out << "game\t" << portable::store(key, m_base) << '\t' << game.current << '\n';
             for (const Category& c : game.categories) {
                 out << "cat\t" << c.name << '\t' << c.attempts << '\t' << c.finished << '\n';
+                if (!c.officialLink.empty() || c.worldRecord >= 0)
+                    out << "wr\t" << c.worldRecord << '\t' << c.worldRecordBy << '\t' << c.officialLink << '\n';
                 for (const Segment& s : c.segments)
                     out << "seg\t" << s.name << '\t' << s.pbSplit << '\t' << s.bestSegment << '\n';
                 for (const Run& r : c.history) {
@@ -344,6 +354,158 @@ void Speedrun::attachVideo(const std::string& file)
         return;
     cat->history.back().video = file;
     save();
+}
+
+} // namespace speedrun
+
+namespace speedrun {
+
+namespace {
+
+// Le contenu de la première balise <tag>...</tag> à partir de pos (vide si absente).
+std::string tagValue(const std::string& xml, const std::string& tag, size_t from = 0, size_t* end = nullptr)
+{
+    const size_t open = xml.find("<" + tag, from);
+    if (open == std::string::npos)
+        return {};
+    const size_t start = xml.find('>', open);
+    if (start == std::string::npos || xml[start - 1] == '/') // <Tag /> : vide
+        return {};
+    const size_t close = xml.find("</" + tag + ">", start);
+    if (close == std::string::npos)
+        return {};
+    if (end)
+        *end = close + tag.size() + 3;
+    return xml.substr(start + 1, close - start - 1);
+}
+
+std::string unescape(std::string text)
+{
+    const std::pair<const char*, const char*> entities[] = {
+        {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&amp;", "&"}};
+    for (const auto& [from, to] : entities)
+        for (size_t p = text.find(from); p != std::string::npos; p = text.find(from, p + 1))
+            text.replace(p, std::strlen(from), to);
+    // (Les noms de LiveSplit sont parfois dans une section CDATA.)
+    if (text.rfind("<![CDATA[", 0) == 0 && text.size() >= 12)
+        text = text.substr(9, text.size() - 12);
+    return text;
+}
+
+std::string escape(const std::string& text)
+{
+    std::string out;
+    for (const char c : text) {
+        switch (c) {
+        case '&': out += "&amp;"; break;
+        case '<': out += "&lt;"; break;
+        case '>': out += "&gt;"; break;
+        case '"': out += "&quot;"; break;
+        default: out += c;
+        }
+    }
+    return out;
+}
+
+// "00:01:23.4560000" -> 83456 ms ; vide -> -1.
+long long parseLssTime(const std::string& text)
+{
+    if (text.empty())
+        return -1;
+    int h = 0, m = 0;
+    double s = 0;
+    // (Un jour peut précéder : "1.02:03:04.5".)
+    std::string t = text;
+    long long days = 0;
+    if (const size_t dot = t.find('.'); dot != std::string::npos && dot < t.find(':'))
+        days = std::atoll(t.substr(0, dot).c_str()), t = t.substr(dot + 1);
+    if (sscanf_s(t.c_str(), "%d:%d:%lf", &h, &m, &s) != 3)
+        return -1;
+    return days * 86400000LL + (h * 3600LL + m * 60LL) * 1000LL + static_cast<long long>(s * 1000.0 + 0.5);
+}
+
+std::string lssTime(long long ms)
+{
+    char text[40];
+    std::snprintf(text, sizeof(text), "%02lld:%02lld:%02lld.%03lld0000", ms / 3600000, ms / 60000 % 60, ms / 1000 % 60, ms % 1000);
+    return text;
+}
+
+} // namespace
+
+bool importLss(const fs::path& file, Category& out, std::string& gameName, std::string& error)
+{
+    std::ifstream in(file, std::ios::binary);
+    if (!in) {
+        error = "Impossible d'ouvrir " + toUtf8(file.filename());
+        return false;
+    }
+    const std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (xml.find("<Run") == std::string::npos || xml.find("<Segments") == std::string::npos) {
+        error = "Ce fichier n'est pas un fichier de splits LiveSplit (.lss)";
+        return false;
+    }
+    gameName = unescape(tagValue(xml, "GameName"));
+    out = Category{};
+    out.name = unescape(tagValue(xml, "CategoryName"));
+    if (out.name.empty())
+        out.name = "Any%";
+    out.attempts = std::atoi(tagValue(xml, "AttemptCount").c_str());
+    size_t pos = xml.find("<Segments");
+    const size_t segmentsEnd = xml.find("</Segments>", pos);
+    while (true) {
+        size_t segEnd = 0;
+        const size_t at = xml.find("<Segment>", pos);
+        if (at == std::string::npos || at > segmentsEnd)
+            break;
+        const std::string seg = tagValue(xml, "Segment", at, &segEnd);
+        Segment s;
+        s.name = unescape(tagValue(seg, "Name"));
+        // Le temps de passage du record : la comparaison "Personal Best".
+        if (const size_t pb = seg.find("name=\"Personal Best\""); pb != std::string::npos)
+            s.pbSplit = parseLssTime(tagValue(seg, "RealTime", pb));
+        s.bestSegment = parseLssTime(tagValue(seg, "RealTime", seg.find("<BestSegmentTime")));
+        if (seg.find("<BestSegmentTime") == std::string::npos)
+            s.bestSegment = -1;
+        out.segments.push_back(std::move(s));
+        pos = segEnd;
+    }
+    if (out.segments.empty()) {
+        error = "Aucun split dans ce fichier";
+        return false;
+    }
+    // Un record n'a de sens que si tous ses temps de passage sont connus... au moins le dernier.
+    if (out.segments.back().pbSplit < 0)
+        for (Segment& s : out.segments)
+            s.pbSplit = -1;
+    // (L'historique de LiveSplit n'est pas repris : seulement le nombre de runs terminées.)
+    out.finished = 0;
+    return true;
+}
+
+bool exportLss(const fs::path& file, const Category& category, const std::string& gameName)
+{
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    if (!out)
+        return false;
+    out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Run version=\"1.7.0\">\n"
+        << "  <GameIcon />\n  <GameName>" << escape(gameName) << "</GameName>\n"
+        << "  <CategoryName>" << escape(category.name) << "</CategoryName>\n"
+        << "  <Metadata><Run id=\"\" /><Platform usesEmulator=\"True\"></Platform><Region></Region><Variables /></Metadata>\n"
+        << "  <Offset>00:00:00</Offset>\n  <AttemptCount>" << category.attempts << "</AttemptCount>\n"
+        << "  <AttemptHistory />\n  <Segments>\n";
+    for (const Segment& s : category.segments) {
+        out << "    <Segment>\n      <Name>" << escape(s.name) << "</Name>\n      <Icon />\n"
+            << "      <SplitTimes>\n        <SplitTime name=\"Personal Best\">";
+        if (s.pbSplit >= 0)
+            out << "<RealTime>" << lssTime(s.pbSplit) << "</RealTime>";
+        out << "</SplitTime>\n      </SplitTimes>\n      <BestSegmentTime>";
+        if (s.bestSegment >= 0)
+            out << "<RealTime>" << lssTime(s.bestSegment) << "</RealTime>";
+        out << "</BestSegmentTime>\n      <SegmentHistory />\n    </Segment>\n";
+    }
+    out << "  </Segments>\n  <AutoSplitterSettings />\n</Run>\n";
+    return static_cast<bool>(out);
 }
 
 } // namespace speedrun

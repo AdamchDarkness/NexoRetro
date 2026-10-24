@@ -38,7 +38,9 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -123,6 +125,9 @@ public:
 
     // Test sur un seul PC : retarde l'envoi des touches pour simuler un ping.
     void setSimulatedLatency(int ms) { m_simulatedLatencyMs = ms; }
+    // Hôte : rollback aussi pour les consoles aux états très lourds (PS2,
+    // GameCube), grâce aux photos différentielles. Sinon, mode délai pour elles.
+    void setHeavyRollback(bool on) { m_heavyRollback = on; }
     // ... et un Internet imparfait : paquets de touches perdus (en %) et
     // ping irrégulier (± ms).
     void setSimulatedLoss(int percent, int jitterMs)
@@ -163,7 +168,8 @@ private:
     void resync();
     // Photographie l'état avant l'image f (et l'empreinte, si c'est un contrôle).
     void snapshot(Emulator& emulator, uint32_t f);
-    std::string* storedState(uint32_t frame);
+    // La photographie d'avant l'image "frame" (false si elle n'est plus gardée).
+    bool restoreState(uint32_t frame, std::string& out) const;
     int portOf(uint8_t memberId) const;
     std::string nameOf(uint8_t memberId) const;
 
@@ -192,7 +198,21 @@ private:
     uint32_t m_frame = 0;                         // prochaine image à calculer
     std::array<Stream, kNetPlayers> m_streams;
     std::map<uint32_t, FrameInputs> m_used;       // touches utilisées pour chaque image calculée
-    std::vector<std::pair<uint32_t, std::string>> m_states; // photographies (anneau)
+    // Les photographies, en anneau. Pour les consoles aux états très lourds
+    // (PS2 : des dizaines de Mo), chaque photo n'est gardée que comme la
+    // DIFFÉRENCE avec une photo "clé" partagée, refaite toutes les 30 images
+    // (voir StateDelta.hpp) : quelques Ko par image au lieu de 40 Mo.
+    struct StoredState {
+        uint32_t frame = std::numeric_limits<uint32_t>::max();
+        std::string data;                       // photo entière, ou différence avec "key"
+        std::shared_ptr<const std::string> key; // photo clé (mode différentiel)
+    };
+    std::vector<StoredState> m_states;
+    bool m_diffStates = false;                  // mode différentiel (état trop lourd)
+    std::shared_ptr<const std::string> m_key;
+    uint32_t m_keyFrame = 0;
+    std::string m_scratch;
+    bool m_heavyRollback = false;               // (hôte) rollback même pour les états lourds
     std::optional<uint32_t> m_rollbackFrom;       // première image à recalculer
     std::set<uint32_t> m_pendingCheckpoints;
     std::map<uint32_t, uint64_t> m_fingerprints;  // empreinte de la mémoire aux images de contrôle

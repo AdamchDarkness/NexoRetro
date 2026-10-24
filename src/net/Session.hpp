@@ -22,7 +22,9 @@
 //
 // Tout se passe dans update(), appelée à chaque image : aucun thread ici.
 
+#include "Crypto.hpp"
 #include "InviteCode.hpp"
+#include "Relay.hpp"
 #include "Socket.hpp"
 #include "Stun.hpp"
 #include "Upnp.hpp"
@@ -100,6 +102,10 @@ public:
 
     // Mot de passe vide = salon ouvert à quiconque a le code.
     bool host(const std::string& salonName, const std::string& password);
+    // Héberger en passant par le relais d'un ami (code du relais, voir Relay.hpp) :
+    // personne ne voit l'adresse IP de l'hôte, et les paquets sont chiffrés.
+    bool hostViaRelay(const std::string& salonName, const std::string& password, const std::string& relayCode);
+    bool viaRelay() const { return m_relay; }
     bool join(const std::string& code, const std::string& password);
     // Côté hôte : le code de réponse envoyé par un ami (si la box bloque).
     bool acceptAnswer(const std::string& code);
@@ -179,6 +185,11 @@ private:
     };
 
     bool openSocket(bool lanPort); // lanPort : l'un des ports connus du réseau local (hôte)
+    // Tous les envois passent par ici : en direct, ou (salon par relais)
+    // chiffrés et confiés au relais quand l'adresse est "virtuelle".
+    void sendRaw(const Address& to, const void* data, size_t size);
+    void handleRelayPacket(const Address& from, const uint8_t* data, size_t size);
+    void updateRelayHost(Uint64 now);
     void setState(State s);
     void startStun();
     void updatePreparation();
@@ -250,6 +261,16 @@ private:
     std::vector<FramePacket> m_frames;
     std::vector<FramePacket> m_voice;
     std::vector<std::string> m_details;
+
+    // Salon par relais.
+    bool m_relay = false;
+    std::vector<Address> m_relayCandidates; // adresses possibles du relais
+    std::optional<Address> m_relayAddr;     // celle qui a répondu
+    uint32_t m_room = 0;
+    std::array<uint8_t, 16> m_secret{};
+    SecureChannel m_crypto;
+    bool m_relayRegistered = false;
+    Uint64 m_lastRegister = 0;
 };
 
 } // namespace net

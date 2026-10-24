@@ -273,6 +273,30 @@ grandir avec les retours de la communauté.
 quel jeu le lance aussi (catégorie Any%). Tout est enregistré dans `speedrun.txt`, dans le dossier des
 données (lisible au Bloc-notes, suit la copie portable). Indisponible pendant une partie en ligne.
 
+- **Raccourcis à la manette** : les boutons de départ/split et de remise à zéro se choisissent dans l'onglet
+  Speedrun (L3, R3, bouton central, Partage, pavé tactile).
+- **Import et export LiveSplit** (`.lss`) : vos splits, votre record, vos meilleurs segments et vos essais
+  arrivent en un clic, et repartent de la même façon.
+- **Catégories officielles de speedrun.com** (son API publique gratuite) : les vraies catégories du jeu avec
+  leur **record du monde** et son auteur, affichés dans l'onglet et dans le chrono en jeu (ligne WR).
+- **Chrono dans la vidéo** (option) : l'enregistrement garde ce qui est dessiné par-dessus le jeu (chrono,
+  touches) ; les notifications sont cachées pendant l'enregistrement.
+- **Affichage des touches** (option) : une manette à l'écran montre les boutons appuyés, dans tous les jeux.
+
+## Emplacements de sauvegarde et frise du retour en arrière
+
+- **8 emplacements de sauvegarde par jeu**, avec une **miniature** du moment et sa date (menu pause →
+  « Emplacements de sauvegarde »).
+- **Frise du retour en arrière** : pendant le retour en arrière (Retour arrière, ou Select + L), une bande en
+  bas de l'écran montre des miniatures du passé (une par seconde), jusqu'où on est remonté, et d'où on est parti.
+
+## Contrôle parental
+
+Paramètres → Contrôle parental : un **temps de jeu par jour** (15 min à 6 h), protégé par un **code parent**
+(seule son empreinte est enregistrée). Cinq minutes avant la fin, un message prévient ; à la fin, la partie
+est sauvegardée et Nexo Retro revient à la bibliothèque ; plus aucun jeu ne se lance jusqu'au lendemain,
+sauf si un parent ajoute 15 ou 30 minutes avec son code.
+
 ## Feuille de route
 
 - [x] **Étape 1** : charger un core, afficher, son, manettes, sauvegardes
@@ -329,6 +353,12 @@ données (lisible au Bloc-notes, suit la copie portable). Indisponible pendant u
 - [x] **Détection des doublons et des versions multiples** (fichiers identiques, autres régions), retrait en un clic
 - [x] Onglet **Speedrun** : catégories et splits, chrono en jeu à la LiveSplit, records et segments en or,
   historique des runs, vidéo MP4 de chaque run (voir la section Speedrun)
+- [x] Speedrun : raccourcis manette, import/export LiveSplit, catégories et records du monde de
+  speedrun.com, chrono dans la vidéo, affichage des touches
+- [x] **Emplacements de sauvegarde avec miniatures** et **frise du retour en arrière**
+- [x] **Contrôle parental** (temps de jeu par jour, code parent)
+- [x] **Jeu en ligne par le relais chiffré d'un ami** (votre IP reste cachée)
+- [x] **Rollback pour PS2 / GameCube** grâce aux états différentiels (expérimental)
 - [ ] Rendu Vulkan sans recopie (image partagée Vulkan/OpenGL), pour les très hautes résolutions
 - [ ] **Liste d'amis** (prochaine mise à jour) : sans serveur, via l'annuaire décentralisé de BitTorrent
   (DHT, comme le messager Tox). Chaque joueur a une clé, son « code ami » est sa clé publique ; il y
@@ -491,6 +521,24 @@ Code : `src/net/Http.cpp` (téléchargements HTTPS avec WinHTTP), `src/scrape/Ga
 (lecture des `.rdb` et comparaison des noms), `src/scrape/Scraper.cpp` (le thread et le cache).
 
 ## Jeu en ligne : comment ça marche
+
+### Sans montrer son IP : le relais chiffré d'un ami
+
+Un ami ouvre un **relais** (onglet Amis → « Ouvrir un relais ») et vous donne son code `RLY-...`. En créant
+votre salon avec « Cacher mon adresse IP » et ce code, tout passe par son PC : les joueurs ne connaissent
+que l'adresse du relais, jamais la vôtre, et vous ne voyez jamais la leur. Les paquets sont **chiffrés de
+bout en bout** (AES-256-GCM, clé tirée d'un secret aléatoire du code d'invitation, calcul fait par BCrypt de
+Windows) : le relais les transmet sans pouvoir les lire ni les modifier. Ça aide aussi quand deux box
+refusent de se parler en direct. Testé sur un PC (relais + hôte + joueur, vrai jeu) : 0 désynchronisation.
+
+### Rollback pour les consoles lourdes (expérimental)
+
+Les états d'une PS2 ou d'une GameCube pèsent des dizaines de Mo : en garder un par image pour le rollback
+était impossible, ces consoles passaient en mode délai. Avec Paramètres → Jeu en ligne → « Rollback pour
+PS2 et GameCube », l'anneau du rollback garde des **états différentiels** : un état « clé » complet toutes
+les 30 images, et pour chaque image seulement sa différence (XOR, compressée) avec lui : quelques Ko. La
+profondeur est limitée (3 à 6 images) et chaque joueur doit avoir un PC rapide. Vérifié avec les états
+différentiels forcés sur GBA (0 désynchronisation) ; pas encore testé sur un vrai jeu PS2.
 
 Il n'y a **aucun serveur ni base de données** : l'émulateur de l'hôte est le salon.
 
