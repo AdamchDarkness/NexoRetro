@@ -418,6 +418,7 @@ void FriendsScreen::drawGame(UiContext& ctx, float width, float height)
             if (button("Choisir mon jeu", {.style = ButtonStyle::Outline, .icon = draw::Icon::Gamepad, .height = 34.0f,
                                            .fontSize = 13.0f})) {
                 m_pickOwn = true;
+                m_pickNight = false;
                 m_openPicker = true;
             }
         }
@@ -451,6 +452,7 @@ void FriendsScreen::drawGame(UiContext& ctx, float width, float height)
                                                                  .icon = draw::Icon::Gamepad, .height = 40.0f,
                                                                  .disabled = picking})) {
             m_pickOwn = false;
+            m_pickNight = false;
             m_openPicker = true;
         }
         sameLine();
@@ -508,6 +510,90 @@ void FriendsScreen::drawGame(UiContext& ctx, float width, float height)
     endCard();
 }
 
+// --- Soirée jeu ------------------------------------------------------------------------------
+
+void advanceGameNight(UiContext& ctx)
+{
+    OnlineState& o = ctx.online;
+    if (!ctx.session.isHost() || o.night.empty())
+        return;
+    // Le jeu suivant encore présent dans la bibliothèque.
+    const Game* next = nullptr;
+    while (!next && ++o.nightIndex < static_cast<int>(o.night.size()))
+        next = ctx.library.find(o.night[static_cast<size_t>(o.nightIndex)]);
+    std::string message;
+    if (!next) {
+        o.nightIndex = -1; // (la liste reste, pour une autre soirée)
+        message = "Fin de la soirée jeu, merci d'avoir joué !";
+    } else {
+        ctx.chooseSalonGame(*next);
+        message = "Soirée jeu · jeu " + std::to_string(o.nightIndex + 1) + "/" + std::to_string(o.night.size()) + " : " +
+                  next->title;
+    }
+    ctx.session.sendChat(message);
+    ctx.online.chat.push_back({ctx.settings.nickname, message, true});
+    ctx.notify(message);
+}
+
+void FriendsScreen::drawNight(UiContext& ctx, float width, float height)
+{
+    OnlineState& o = ctx.online;
+    beginCard("##night", ImVec2(width, height), 20.0f);
+    const float inner = ImGui::GetContentRegionAvail().x;
+    overline("SOIRÉE JEU");
+    const bool picking = !o.picking.empty();
+    if (o.night.empty()) {
+        // Le texte à gauche, le bouton à droite sur la même hauteur.
+        const ImVec2 start = ImGui::GetCursorPos();
+        textWrapped("Préparez une liste de jeux : à la fin de chaque partie, le suivant est choisi pour tout le salon.",
+                    13.0f, Weight::Medium, theme::Muted, inner - px(210.0f));
+        ImGui::SetCursorPos(ImVec2(start.x + inner - px(190.0f), start.y));
+        if (button("Préparer la soirée", {.style = ButtonStyle::Outline, .icon = draw::Icon::List, .height = 40.0f,
+                                          .width = 190.0f})) {
+            m_pickNight = true;
+            m_pickOwn = false;
+            m_openPicker = true;
+        }
+        endCard();
+        return;
+    }
+    // La liste en une ligne : le jeu en cours en gras, les suivants à la suite.
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const int count = static_cast<int>(o.night.size());
+    const bool started = o.nightIndex >= 0;
+    std::string line;
+    for (int i = std::max(0, o.nightIndex); i < count; ++i) {
+        const Game* g = ctx.library.find(o.night[static_cast<size_t>(i)]);
+        line += (line.empty() ? "" : "  ›  ") + (g ? g->title : toUtf8(o.night[static_cast<size_t>(i)].stem()));
+    }
+    const std::string status = started ? "Jeu " + std::to_string(o.nightIndex + 1) + " sur " + std::to_string(count)
+                                       : std::to_string(count) + (count > 1 ? " jeux prévus" : " jeu prévu");
+    // À gauche : où en est la soirée ; à droite : les boutons.
+    const float buttonsW = px(190.0f + 8.0f + 38.0f + 8.0f + 38.0f);
+    const ImVec2 start = ImGui::GetCursorPos();
+    text(status, 16.0f, Weight::ExtraBold);
+    draw::textEllipsis(dl, ImGui::GetCursorScreenPos(), Weight::Medium, 13.0f, theme::Muted, line, inner - buttonsW - px(16.0f));
+    ImGui::SetCursorPos(ImVec2(start.x + inner - buttonsW, start.y + px(2.0f)));
+    const bool last = o.nightIndex + 1 >= count;
+    if (button(started ? (last ? "Terminer la soirée" : "Jeu suivant") : "Commencer la soirée",
+               {.style = started ? ButtonStyle::Outline : ButtonStyle::Primary,
+                .icon = started ? draw::Icon::ChevronRight : draw::Icon::Play, .height = 38.0f, .width = 190.0f,
+                .fontSize = 13.0f, .disabled = picking}))
+        advanceGameNight(ctx);
+    sameLine(8.0f);
+    if (iconButton("##editNight", draw::Icon::Pencil, ButtonStyle::Soft, 38.0f, "Modifier la liste")) {
+        m_pickNight = true;
+        m_pickOwn = false;
+        m_openPicker = true;
+    }
+    sameLine(8.0f);
+    if (iconButton("##clearNight", draw::Icon::Close, ButtonStyle::Soft, 38.0f, "Vider")) {
+        o.night.clear();
+        o.nightIndex = -1;
+    }
+    endCard();
+}
+
 void FriendsScreen::drawGamePicker(UiContext& ctx)
 {
     if (m_openPicker) {
@@ -529,13 +615,18 @@ void FriendsScreen::drawGamePicker(UiContext& ctx)
         // chacun choisit SON jeu de la console du salon.
         const auto& salonGame = ctx.session.game();
         const bool own = m_pickOwn && salonGame;
-        text(own ? "Choisir votre jeu" : "Choisir le jeu du salon", 22.0f, Weight::ExtraBold);
-        text(own ? "Le vôtre, avec votre sauvegarde : il sera relié par le câble à celui de vos amis."
-                 : "Vos amis devront avoir exactement le même fichier.",
+        const bool night = m_pickNight && !own;
+        text(night ? "Préparer la soirée jeu" : own ? "Choisir votre jeu" : "Choisir le jeu du salon", 22.0f, Weight::ExtraBold);
+        text(night ? "Cliquez les jeux dans l'ordre où vous voulez y jouer."
+                   : own ? "Le vôtre, avec votre sauvegarde : il sera relié par le câble à celui de vos amis."
+                         : "Vos amis devront avoir exactement le même fichier.",
              13.0f, Weight::Medium, theme::Muted);
         const ImVec2 after = ImGui::GetCursorPos();
-        ImGui::SetCursorPos(ImVec2(top.x + width - px(40.0f), top.y));
-        if (iconButton("##close", draw::Icon::Close, ButtonStyle::Soft, 40.0f))
+        ImGui::SetCursorPos(ImVec2(top.x + width - px(night ? 110.0f : 40.0f), top.y));
+        if (night) {
+            if (button("Terminé", {.style = ButtonStyle::Primary, .height = 40.0f, .width = 110.0f}))
+                ImGui::CloseCurrentPopup();
+        } else if (iconButton("##close", draw::Icon::Close, ButtonStyle::Soft, 40.0f))
             ImGui::CloseCurrentPopup();
         ImGui::SetCursorPos(after);
         space(4.0f);
@@ -566,7 +657,27 @@ void FriendsScreen::drawGamePicker(UiContext& ctx)
                                rowW - px(80.0f));
             draw::text(dl, ImVec2(p.x + px(60.0f), p.y + px(34.0f)), Weight::Medium, 12.0f, theme::Muted,
                        std::string(g.system->name) + " · " + formatSize(g.size));
-            if (clicked) {
+            // Soirée jeu : le numéro du jeu dans la liste, à droite.
+            auto& list = ctx.online.night;
+            const auto inList = std::find(list.begin(), list.end(), g.path);
+            if (night && inList != list.end()) {
+                const ImVec2 c(p.x + rowW - px(30.0f), p.y + px(32.0f));
+                dl->AddCircleFilled(c, px(14.0f), theme::Accent, 24);
+                const std::string number = std::to_string(inList - list.begin() + 1);
+                const ImVec2 ns = draw::measure(Weight::ExtraBold, 13.0f, number);
+                draw::text(dl, ImVec2(c.x - ns.x / 2, c.y - ns.y / 2), Weight::ExtraBold, 13.0f, theme::White, number);
+            }
+            if (clicked && night) {
+                // Un clic ajoute le jeu en fin de liste, un second le retire.
+                if (inList != list.end()) {
+                    const int removed = static_cast<int>(inList - list.begin());
+                    list.erase(inList);
+                    if (ctx.online.nightIndex >= removed && ctx.online.nightIndex > 0)
+                        --ctx.online.nightIndex;
+                } else {
+                    list.push_back(g.path);
+                }
+            } else if (clicked) {
                 if (own)
                     ctx.online.linkChoice = g.path;
                 else
@@ -693,6 +804,10 @@ void FriendsScreen::draw(UiContext& ctx)
             gameH = 394.0f;
         drawGame(ctx, rightW, px(gameH));
         space(14.0f);
+        if (ctx.session.isHost()) {
+            drawNight(ctx, rightW, px(ctx.online.night.empty() ? 112.0f : 118.0f));
+            space(14.0f);
+        }
         drawChat(ctx, rightW, ImGui::GetContentRegionAvail().y);
     } else if (!ctx.online.chat.empty()) {
         drawChat(ctx, rightW, ImGui::GetContentRegionAvail().y); // la discussion reste lisible après la fin du salon

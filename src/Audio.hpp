@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 
+class VideoRecorder;
+
 class Audio {
 public:
     Audio() = default;
@@ -28,6 +30,8 @@ public:
     // Ignore le son produit (images recalculées par le rollback : on ne
     // veut pas les entendre une deuxième fois).
     void setMuted(bool muted) { m_muted = muted; }
+    // Enregistrement vidéo : le son joué lui est aussi transmis (nullptr = personne).
+    void setRecorder(VideoRecorder* recorder) { m_recorder = recorder; }
     // Volume, de 0 (muet) à 100 (le son d'origine du jeu).
     void setVolume(int percent);
 
@@ -35,5 +39,6 @@ private:
     SDL_AudioStream* m_stream = nullptr;
     double m_sampleRate = 0.0;
     bool m_muted = false;
+    VideoRecorder* m_recorder = nullptr;
     float m_gain = 1.0f;
 };

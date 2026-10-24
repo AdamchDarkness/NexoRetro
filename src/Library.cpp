@@ -13,6 +13,12 @@
 #include <sstream>
 #include <system_error>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h> // GetDriveTypeW
+#endif
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -298,6 +304,7 @@ void Library::scan(const UserData& userData)
 {
     m_games.clear();
     m_biosFound.clear();
+    m_offline.clear();
     std::error_code ec;
     fs::create_directories(m_coresDir, ec);
     // Un même fichier peut être trouvé deux fois (roms/ + dossier surveillé).
@@ -344,6 +351,13 @@ void Library::scan(const UserData& userData)
     }
     // 3. Les dossiers surveillés : la console est devinée.
     for (const fs::path& folder : userData.watchedFolders()) {
+        // (Un partage réseau éteint : exists() échoue après quelques
+        // secondes, une fois par scan.)
+        if (std::error_code offline; !fs::is_directory(folder, offline)) {
+            m_offline.push_back(UserData::keyOf(folder));
+            SDL_Log("Dossier surveillé injoignable : %s", toUtf8(folder).c_str());
+            continue;
+        }
         walk(folder, [&](const fs::path& file) {
             if (const System* system = guessSystem(file))
                 add(file, *system);
@@ -356,6 +370,24 @@ void Library::scan(const UserData& userData)
               [](const Game& a, const Game& b) { return toLower(a.title) < toLower(b.title); });
 
     SDL_Log("Bibliothèque : %zu jeux trouvés", m_games.size());
+}
+
+bool Library::isOffline(const fs::path& folder) const
+{
+    return std::find(m_offline.begin(), m_offline.end(), UserData::keyOf(folder)) != m_offline.end();
+}
+
+bool Library::isNetworkPath(const fs::path& folder)
+{
+    const std::string text = toUtf8(folder);
+    if (text.size() > 2 && (text[0] == '\\' || text[0] == '/') && (text[1] == '\\' || text[1] == '/'))
+        return true; // \\nas\partage
+#ifdef _WIN32
+    const fs::path root = folder.root_path();
+    if (!root.empty() && GetDriveTypeW(root.c_str()) == DRIVE_REMOTE)
+        return true; // lecteur réseau (Z:)
+#endif
+    return false;
 }
 
 const Game* Library::find(const fs::path& path) const

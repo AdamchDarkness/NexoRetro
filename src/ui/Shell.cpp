@@ -5,6 +5,7 @@
 #include "../ExternalSetup.hpp"
 #include "../Trash.hpp"
 #include "../Utf8.hpp"
+#include "../LibraryTools.hpp"
 #include "Screens.hpp"
 #include "Themes.hpp"
 #include "Widgets.hpp"
@@ -29,6 +30,7 @@ struct NavItem {
 constexpr NavItem kNav[] = {{"Accueil", Screen::Home},
                             {"Bibliothèque", Screen::Library},
                             {"Amis", Screen::Friends},
+                            {"Speedrun", Screen::Speedrun},
                             {"BIOS", Screen::Bios},
                             {"Paramètres", Screen::Settings}};
 
@@ -86,6 +88,7 @@ void Shell::draw(UiContext& ctx)
     case Screen::Bios: m_bios.draw(ctx); break;
     case Screen::Friends: m_friends.draw(ctx); break;
     case Screen::Settings: m_settings.draw(ctx); break;
+    case Screen::Speedrun: m_speedrun.draw(ctx); break;
     }
     ImGui::EndChild();
 
@@ -293,6 +296,24 @@ void Shell::onDialogResult(UiContext& ctx, const DialogResult& result)
         ctx.notify(ctx.bios.exportTo(zip));
         break;
     }
+    case DialogPurpose::ExportLibraryCsv:
+    case DialogPurpose::ExportLibraryHtml: {
+        const bool csv = result.purpose == DialogPurpose::ExportLibraryCsv;
+        fs::path file = result.paths.front();
+        if (file.extension().empty())
+            file += csv ? ".csv" : ".html";
+        ctx.notify(csv ? library_tools::exportCsv(ctx.library.games(), ctx.userData, ctx.scraper, file)
+                       : library_tools::exportHtml(ctx.library.games(), ctx.userData, ctx.scraper, file));
+        break;
+    }
+    case DialogPurpose::ChooseSpeedrunFolder:
+        ctx.settings.speedrunFolder = toUtf8(result.paths.front());
+        ctx.settingsChanged();
+        ctx.notify("Les vidéos des runs iront dans " + toUtf8(result.paths.front()));
+        break;
+    case DialogPurpose::MakePortable:
+        startPortableCopy(ctx, result.paths.front());
+        break;
     case DialogPurpose::ImportBios:
         ctx.notify(ctx.bios.importArchive(result.paths.front()));
         break;
@@ -331,6 +352,26 @@ void Shell::onDialogResult(UiContext& ctx, const DialogResult& result)
         break;
     }
     }
+}
+
+void startPortableCopy(UiContext& ctx, const fs::path& dest)
+{
+    if (ctx.portableCopy.busy())
+        return;
+    PortableCopy::Plan plan;
+    plan.exeDir = fromUtf8(SDL_GetBasePath());
+    plan.dataDir = ctx.dataDir;
+    plan.dest = dest;
+    plan.userData = ctx.userData;
+    // Les jeux rangés hors du dossier des données sont recopiés dans
+    // roms/<console>/ ; ceux d'un NAS restent sur le NAS (trop gros pour une
+    // clé, et joignables d'ailleurs).
+    const std::string data = UserData::keyOf(ctx.dataDir);
+    for (const Game& g : ctx.library.games())
+        if (UserData::keyOf(g.path).rfind(data, 0) != 0 && !Library::isNetworkPath(g.path))
+            plan.outsideGames.emplace_back(g.path, g.system->id);
+    ctx.portableCopy.start(std::move(plan));
+    ctx.notify("Copie portable en cours…");
 }
 
 void Shell::onDrop(UiContext& ctx, const std::vector<fs::path>& paths)

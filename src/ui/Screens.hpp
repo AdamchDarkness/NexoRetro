@@ -19,6 +19,9 @@
 #include "../FileDialogs.hpp"
 #include "../Input.hpp"
 #include "../Library.hpp"
+#include "../LibraryTools.hpp"
+#include "../PortableCopy.hpp"
+#include "../Speedrun.hpp"
 #include "../Settings.hpp"
 #include "../UserData.hpp"
 #include "../VoiceChat.hpp"
@@ -37,7 +40,7 @@
 
 namespace ui {
 
-enum class Screen { Home, Library, Game, AddGames, Bios, Friends, Settings };
+enum class Screen { Home, Library, Game, AddGames, Bios, Friends, Settings, Speedrun };
 
 // Où l'on se trouve dans l'application.
 struct Navigation {
@@ -51,8 +54,10 @@ struct Navigation {
     bool openDelete = false;        // fiche du jeu : ouvrir "Supprimer" (tests)
     bool openSave = false;          // ... "Sauvegarde du jeu" (tests)
     bool openCheats = false;        // ... "Codes de triche", onglet en ligne (tests)
+    bool openDuplicates = false;    // Paramètres : ouvrir "Doublons et versions" (tests)
     std::string externalChoosing;   // console dont on choisit l'émulateur externe
     bool bigPicture = false;        // mode Big Picture (plein écran, à la manette)
+    bool speedrunLaunch = false;    // le prochain jeu lancé l'est depuis l'écran Speedrun (chrono affiché)
     bool openFilters = false;       // bibliothèque : ouvrir la fenêtre des filtres (tests)
     bool openViews = false;         // bibliothèque : ouvrir le menu « Vue » (tests)
 
@@ -78,6 +83,9 @@ struct OnlineState {
     int startFrom = 0;
     // Câble link : le jeu choisi par CE joueur (vide = celui du même nom que le jeu du salon).
     std::filesystem::path linkChoice;
+    // Soirée jeu (hôte) : la liste préparée, et le jeu en cours (-1 = pas commencée).
+    std::vector<std::filesystem::path> night;
+    int nightIndex = -1;
 };
 
 const char* statusLabel(net::GameStatus status);
@@ -99,6 +107,8 @@ struct UiContext {
     VoiceChat& voice;
     CoreUpdater& coreUpdater;
     DiscordPresence& discord;
+    PortableCopy& portableCopy;
+    speedrun::Speedrun& speedrun;
     std::filesystem::path dataDir;
 
     std::function<void(const Game&, const std::filesystem::path& state)> play;
@@ -169,6 +179,13 @@ TileResult coverTile(const UiContext& ctx, const Game& game, float width, float 
                      float titleSize);
 
 // --- Les écrans ----------------------------------------------------------
+
+// Soirée jeu : l'hôte passe au jeu suivant de sa liste (choisi pour tout le
+// salon, annoncé dans la discussion). Appelée aussi à la fin de chaque partie.
+void advanceGameNight(UiContext& ctx);
+
+// Lance la copie portable de Nexo Retro dans ce dossier (clé USB...).
+void startPortableCopy(UiContext& ctx, const std::filesystem::path& dest);
 
 class HomeScreen {
 public:
@@ -242,6 +259,7 @@ public:
     void import(UiContext& ctx, const std::vector<std::filesystem::path>& paths);
 
 private:
+    bool importPack(UiContext& ctx, const std::filesystem::path& archive); // .zip de plusieurs jeux
     struct ImportItem {
         enum class Status { Added, Ambiguous, Unsupported, Folder };
         std::filesystem::path path;
@@ -252,6 +270,7 @@ private:
         int choice = 0;
     };
     std::vector<ImportItem> m_items;
+    char m_networkPath[260] = ""; // \\NAS\Jeux, en cours de saisie
 };
 
 class BiosScreen {
@@ -270,6 +289,7 @@ private:
     void drawMembers(UiContext& ctx, float width);
     void drawGame(UiContext& ctx, float width, float height);
     void drawGamePicker(UiContext& ctx);
+    void drawNight(UiContext& ctx, float width, float height); // soirée jeu (hôte)
     void drawChat(UiContext& ctx, float width, float height);
     void drawHelp(float width);
     char m_salonName[48] = "";
@@ -281,6 +301,7 @@ private:
     char m_pickerSearch[64] = "";
     bool m_openPicker = false;
     bool m_pickOwn = false;        // câble link : choisir SON jeu (et non celui du salon)
+    bool m_pickNight = false;      // soirée jeu : composer la liste (plusieurs jeux)
     bool m_showFullCode = false;   // hôte : afficher aussi le code complet
     size_t m_chatSeen = 0;         // pour défiler vers le bas à chaque nouveau message
 };
@@ -298,6 +319,9 @@ private:
     void drawCores(UiContext& ctx, float width);    // cores libretro : installer, mettre à jour
     void drawUpdates(UiContext& ctx, float width);  // Nexo Retro lui-même : nouvelle version
     void drawAppearance(UiContext& ctx, float width, bool& changed); // thèmes, fond, police, sons
+    void drawDuplicates(UiContext& ctx);                            // fenêtre "Doublons et versions"
+    std::vector<library_tools::Duplicates> m_duplicates;
+    bool m_openDuplicates = false;
     bool m_colorPending = false; // une couleur réglée à la souris, à enregistrer en lâchant
     std::deque<std::string> m_coreQueue;            // cores à installer l'un après l'autre
     std::map<std::string, std::string> m_argsEdit;  // arguments en cours de saisie
@@ -312,6 +336,27 @@ private:
     char m_nickname[48] = "";
     bool m_waitingVoiceKey = false; // "Touche pour parler" : en attente d'une touche
     char m_discordId[32] = "";
+};
+
+// Speedrun : catégories, splits, records, historique et vidéos des runs.
+class SpeedrunScreen {
+public:
+    void draw(UiContext& ctx);
+
+private:
+    void drawWelcome(UiContext& ctx, float width);
+    void drawGame(UiContext& ctx, const Game& game, float width);
+    void drawPicker(UiContext& ctx);
+    void drawCategoryPopup(UiContext& ctx, speedrun::GameRuns& runs);
+    std::filesystem::path m_game; // jeu affiché
+    bool m_openPicker = false;
+    bool m_openCategory = false;
+    bool m_confirmCounter = false; // "Remettre à 0" : second clic pour confirmer
+    int m_editSplit = -1;          // split en cours de renommage
+    char m_splitName[64] = "";
+    char m_newSplit[64] = "";
+    char m_categoryName[48] = "";
+    char m_search[64] = "";
 };
 
 // Big Picture : plein écran, sombre, grandes jaquettes, tout à la manette.
@@ -342,6 +387,7 @@ private:
     BiosScreen m_bios;
     FriendsScreen m_friends;
     SettingsScreen m_settings;
+    SpeedrunScreen m_speedrun;
     BigPictureScreen m_bigPicture;
 };
 

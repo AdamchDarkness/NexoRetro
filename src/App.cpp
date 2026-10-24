@@ -3,6 +3,7 @@
 #include "Core.hpp"
 #include "Cheats.hpp"
 #include "Lang.hpp"
+#include "LibraryTools.hpp"
 #include "ExternalProcess.hpp"
 #include "ExternalSetup.hpp"
 #include "WiiControllers.hpp"
@@ -43,6 +44,7 @@ ui::Screen screenFromName(const std::string& name)
     if (name == "add") return ui::Screen::AddGames;
     if (name == "bios") return ui::Screen::Bios;
     if (name == "friends") return ui::Screen::Friends;
+    if (name == "speedrun") return ui::Screen::Speedrun;
     if (name == "settings") return ui::Screen::Settings;
     return ui::Screen::Home;
 }
@@ -60,10 +62,11 @@ App::App(AppOptions options)
       m_coreUpdater(dir("cores")),
       m_appUpdater(fromUtf8(SDL_GetBasePath())), // (installed.txt est à côté de l'exe, pas des données)
       m_remaps(dir("remaps.txt")),
+      m_speedrun(dir("speedrun.txt")),
       // Le contexte des écrans : des références vers nos membres, et des
       // lambdas qui appellent nos méthodes. [C++] [this] capture l'objet App.
       m_context{m_library, m_userData, m_settings, m_bios, m_covers, m_input, m_nav, m_session, m_online, m_scraper, m_installer,
-                m_voice, m_coreUpdater, m_discord, m_options.dataDir,
+                m_voice, m_coreUpdater, m_discord, m_portableCopy, m_speedrun, m_options.dataDir,
                 [this](const Game& game, const fs::path& state) {
                     // Switch, Xbox, PS3... : un programme à part lance le jeu.
                     if (game.system->external())
@@ -85,6 +88,14 @@ App::App(AppOptions options)
                     case DialogPurpose::ImportSave:
                     case DialogPurpose::ChooseExternal: m_dialogs.openFiles(m_video.window(), purpose, false, false); break;
                     case DialogPurpose::ImportBios: m_dialogs.openZip(m_video.window(), purpose); break;
+                    case DialogPurpose::MakePortable:
+                    case DialogPurpose::ChooseSpeedrunFolder: m_dialogs.openFolder(m_video.window(), purpose); break;
+                    case DialogPurpose::ExportLibraryCsv:
+                        m_dialogs.saveFile(m_video.window(), purpose, "NexoRetro-collection.csv", "CSV", "csv");
+                        break;
+                    case DialogPurpose::ExportLibraryHtml:
+                        m_dialogs.saveFile(m_video.window(), purpose, "NexoRetro-collection.html", "HTML", "html");
+                        break;
                     case DialogPurpose::ExportBios: {
                         // Nom proposé : NexoRetro-BIOS-2026-10-23.zip
                         const std::time_t now = std::time(nullptr);
@@ -246,6 +257,7 @@ bool App::init()
         fs::create_directories(dir(name), ec);
     m_userData.load();
     m_settings.load(dir("settings.ini"));
+    m_speedrun.load();
     // Les thèmes (intégrés + fichiers themes/*.ini) et celui choisi : avant
     // de créer l'interface, pour charger tout de suite la bonne police.
     theme::loadThemes(dir("themes"));
@@ -343,6 +355,25 @@ bool App::init()
         SDL_Log("TEST BIOS : %s", result.c_str());
         m_ui.notify(result);
     }
+    if (!m_options.exportLibrary.empty()) {
+        const fs::path& file = m_options.exportLibrary;
+        const std::string result = toUtf8(file.extension()) == ".csv"
+                                       ? library_tools::exportCsv(m_library.games(), m_userData, m_scraper, file)
+                                       : library_tools::exportHtml(m_library.games(), m_userData, m_scraper, file);
+        SDL_Log("TEST BIBLIOTHÈQUE : %s", result.c_str());
+    }
+    m_nav.openDuplicates = m_options.testDuplicates;
+    if (m_options.testDuplicates)
+        for (const library_tools::Duplicates& d : library_tools::findDuplicates(m_library.games())) {
+            std::string names;
+            for (const Game* g : d.games)
+                names += " | " + toUtf8(g->path.filename());
+            SDL_Log("TEST DOUBLONS : %s%s", d.identical ? "identiques" : "versions", names.c_str());
+        }
+    if (!m_options.portableCopy.empty())
+        ui::startPortableCopy(m_context, m_options.portableCopy);
+    if (!m_options.drop.empty())
+        m_shell.onDrop(m_context, m_options.drop);
     if (!m_options.exportBios.empty()) {
         const std::string result = m_bios.exportTo(m_options.exportBios);
         SDL_Log("TEST BIOS : %s", result.c_str());
@@ -455,6 +486,7 @@ int App::run()
                     m_audio.setMuted(false);
                     m_audio.clear();
                     m_timeMode = TimeMode::Rewinding;
+                    m_speedrun.markAssisted();
                 } else {
                     m_timeMode = TimeMode::RewindEnd; // tout le passé gardé a été remonté
                 }
@@ -463,6 +495,7 @@ int App::run()
                 const int steps = wantFast ? std::clamp(m_settings.fastForwardSpeed, 2, 8) : 1;
                 if (wantFast) {
                     m_timeMode = TimeMode::Fast;
+                    m_speedrun.markAssisted();
                     m_audio.setMuted(true); // un son accéléré serait inaudible
                 }
                 for (int step = 0; step < steps; ++step) {
@@ -494,6 +527,7 @@ int App::run()
                     if (m_audio.queuedSeconds() > m_settings.maxAudioQueue())
                         m_audio.clear();
                     ++m_fpsFrames;
+                    ++m_emuFrames;
                     captureRewind();
                 }
                 if (wantFast) {
@@ -523,6 +557,14 @@ int App::run()
         }
 
         m_video.renderGame();
+        updateSpeedrun();
+        if (m_recorder.recording()) {
+            int w = 0;
+            int h = 0;
+            std::vector<uint8_t> pixels;
+            if (m_video.readGameArea(pixels, w, h))
+                m_recorder.addFrame(std::move(pixels), w, h, m_emuFrames);
+        }
         drawUi();
 
         ++frameCount;
@@ -632,6 +674,10 @@ void App::handleEvent(const SDL_Event& event)
                     m_core->reset();
                 break;
             case SDLK_F12: takeScreenshot(); break;
+            case SDLK_F5:
+            case SDLK_F6:
+            case SDLK_F7:
+            case SDLK_F9: speedrunKey(event.key.key); break;
             default: break;
             }
         }
@@ -663,6 +709,8 @@ void App::drawUi()
         if (m_settings.showFps)
             drawFps();
         drawTimeBadge();
+        if (m_speedrun.enabled())
+            drawSpeedrunOverlay();
         if (m_netplay.active())
             drawNetplayOverlay();
         if (m_link.active())
@@ -844,6 +892,9 @@ void App::updateNetplay()
             m_pendingReturn = true;
             m_nav.go(ui::Screen::Friends); // retour au salon
         }
+        // Soirée jeu en cours : le jeu suivant est choisi pour tout le monde.
+        if (m_session.isHost() && m_online.nightIndex >= 0)
+            ui::advanceGameNight(m_context);
     }
 }
 
@@ -1000,6 +1051,8 @@ void App::updateSalonGame()
 
 void App::updateServices()
 {
+    if (std::optional<std::string> done = m_portableCopy.takeResult())
+        m_ui.notify(*done);
     // Chat vocal. La touche "appuyer pour parler" ne compte pas pendant la
     // saisie d'un texte (un message du salon qui contient un "t"...).
     const bool* keys = SDL_GetKeyboardState(nullptr);
@@ -1193,7 +1246,14 @@ void App::updateNetTest(const net::Session::Event* event)
         // Quand tout le monde est là : choisir le jeu.
         if (m_options.netTestGame && !m_netTestGamePicked && friends >= m_options.netTestExpect &&
             !m_library.games().empty()) {
-            m_context.chooseSalonGame(m_library.games().front());
+            if (m_options.netTestNight) {
+                // Soirée jeu : les trois premiers jeux, le premier choisi tout de suite.
+                for (size_t i = 0; i < std::min<size_t>(3, m_library.games().size()); ++i)
+                    m_online.night.push_back(m_library.games()[i].path);
+                ui::advanceGameNight(m_context);
+            } else {
+                m_context.chooseSalonGame(m_library.games().front());
+            }
             m_netTestGamePicked = true;
         }
         // Test du câble link : le salon passe en mode câble dès que le jeu est annoncé.
@@ -1622,6 +1682,10 @@ bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::pa
         m_video.setFullscreen(true);
     m_mode = Mode::Playing;
     setMenuOpen(false);
+    // Le chrono suit le jeu lancé ; lancé depuis l'écran Speedrun, il est déjà affiché.
+    m_speedrun.setGame(romPath, m_gameTitle);
+    m_speedrun.setEnabled(m_nav.speedrunLaunch && !romPath.empty());
+    m_nav.speedrunLaunch = false;
     m_ui.notify(m_settings.menuButton == 0 ? "Échap ou Select + Start : menu" : "Échap ou bouton central : menu");
     return true;
 }
@@ -1647,6 +1711,9 @@ void App::closeGame()
     }
     m_netplayGame = false;
     m_netplayKeepsSave = false;
+    m_speedrun.reset();         // (une run en cours compte comme abandonnée)
+    updateSpeedrun();           // ... et sa vidéo est terminée
+    m_speedrun.setGame({}, {});
     m_input.clearOverride();
     m_input.setRemap(Remaps::identity()); // hors du jeu : chaque bouton à lui-même
     m_controlsOpen = false;
@@ -1717,6 +1784,7 @@ void App::applySettings()
     m_audio.setVolume(m_settings.volume);
     // L'apparence : thème, couleurs, fond, police (rechargée par Ui::beginFrame).
     theme::applySettings(m_settings);
+    m_ui.setZoom(m_settings.uiZoom / 100.0f);
     // Sons de l'interface : pack choisi, ou celui du thème.
     const int pack = m_settings.uiSoundPack > 0 ? m_settings.uiSoundPack - 1 : theme::active().soundPack;
     sounds::configure(m_settings.uiSounds, m_settings.uiSoundVolume, static_cast<sounds::Pack>(pack));
@@ -1919,6 +1987,218 @@ void App::captureRewind()
         m_rewind.push(state);
 }
 
+// --- Speedrun ------------------------------------------------------------------------------
+
+void App::speedrunKey(SDL_Keycode key)
+{
+    // En ligne, le temps ne s'arrête pas pour un seul joueur : pas de chrono.
+    if (m_netplay.active() || m_link.active()) {
+        m_ui.notify("Indisponible pendant une partie en ligne");
+        return;
+    }
+    switch (key) {
+    case SDLK_F5: m_speedrun.startOrSplit(); break;
+    case SDLK_F6: m_speedrun.undoSplit(); break;
+    case SDLK_F7: m_speedrun.skipSplit(); break;
+    case SDLK_F9:
+        m_speedrun.reset();
+        // Une nouvelle tentative repart du début du jeu (réglable dans l'écran Speedrun).
+        if (m_settings.speedrunResetGame && m_core) {
+            m_core->reset();
+            m_rewind.reset();
+        }
+        m_ui.notify("Chrono remis à zéro");
+        break;
+    default: break;
+    }
+}
+
+void App::updateSpeedrun()
+{
+    // Tests : F5 "appuyée" aux tours de boucle demandés.
+    if (!m_options.testSpeedrun.empty() && m_mode == Mode::Playing) {
+        std::istringstream list(m_options.testSpeedrun);
+        std::string value;
+        while (std::getline(list, value, ','))
+            if (std::atoi(value.c_str()) == m_gameLoops && m_gameLoops != m_testSpeedrunLoop) {
+                m_testSpeedrunLoop = m_gameLoops;
+                speedrunKey(SDLK_F5);
+            }
+    }
+    // Une run part : la vidéo démarre avec elle.
+    if (m_speedrun.takeStarted() && m_settings.speedrunRecord && m_core && !m_recorder.recording()) {
+        const fs::path folder = m_settings.speedrunFolder.empty() ? dir("speedruns") : fromUtf8(m_settings.speedrunFolder);
+        const speedrun::Category* cat = m_speedrun.category();
+        // "Super Mario World - Any% - 2026-10-24 21-05-33.mp4" (sans les caractères interdits par Windows)
+        char date[32];
+        const std::time_t t = std::time(nullptr);
+        std::tm day{};
+        localtime_s(&day, &t);
+        std::strftime(date, sizeof(date), "%Y-%m-%d %H-%M-%S", &day);
+        std::string name = m_gameTitle + " - " + (cat ? cat->name : std::string("Run")) + " - " + date;
+        for (char& c : name)
+            if (std::string_view("<>:\"/\\|?*").find(c) != std::string_view::npos)
+                c = '_';
+        const retro_system_timing& timing = m_core->avInfo().timing;
+        if (m_recorder.start(folder / fromUtf8(name + ".mp4"), timing.fps, timing.sample_rate))
+            m_audio.setRecorder(&m_recorder);
+    }
+    // Une run finit (terminée ou remise à zéro) : la vidéo est fermée, gardée ou non.
+    if (m_speedrun.takeEnded()) {
+        const speedrun::Run* run = m_speedrun.lastRun();
+        if (run && run->timeMs >= 0)
+            m_ui.notify(m_speedrun.lastWasPb() ? "Nouveau record : " + speedrun::formatTime(run->timeMs) + " !"
+                                               : "Run terminée : " + speedrun::formatTime(run->timeMs));
+        if (m_recorder.recording()) {
+            m_audio.setRecorder(nullptr);
+            const fs::path file = m_recorder.file();
+            m_recorder.stop();
+            const bool finished = run && run->timeMs >= 0;
+            const bool keep = m_settings.speedrunKeep == 0 || (m_settings.speedrunKeep == 1 && finished) ||
+                              (m_settings.speedrunKeep == 2 && finished && m_speedrun.lastWasPb());
+            std::error_code ec;
+            if (keep && fs::exists(file, ec)) {
+                m_speedrun.attachVideo(toUtf8(file));
+                m_ui.notify("Vidéo de la run enregistrée");
+            } else {
+                fs::remove(file, ec);
+            }
+        }
+    }
+    if (const std::string error = m_recorder.takeError(); !error.empty())
+        m_ui.notify(error);
+}
+
+void App::drawSpeedrunOverlay()
+{
+    using theme::px;
+    using theme::Weight;
+    speedrun::Category* cat = m_speedrun.category();
+    if (!cat)
+        return;
+    // Un panneau à la LiveSplit, en haut à gauche de l'image du jeu (à
+    // droite, les notifications passeraient dessus).
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const float* game = m_video.gameRect();
+    const float left = game[2] > 0 ? game[0] : 0.0f;
+    const float top = game[3] > 0 ? game[1] : 0.0f;
+    const float width = px(300.0f);
+    const float rowH = px(30.0f);
+    const int count = static_cast<int>(cat->segments.size());
+    const int current = m_speedrun.state() == speedrun::Speedrun::State::Running ? m_speedrun.currentSplit() : -1;
+    // Au plus 8 splits visibles, autour de celui en cours (le dernier toujours affiché).
+    constexpr int kVisible = 8;
+    int first = 0;
+    if (count > kVisible)
+        first = std::clamp((current < 0 ? count : current) - kVisible / 2, 0, count - kVisible);
+    const int shown = std::min(count, kVisible);
+    const float height = px(64.0f) + rowH * static_cast<float>(shown) + px(96.0f);
+    const ImVec2 min(left + px(16.0f), top + px(16.0f));
+    const ImVec2 max(min.x + width, min.y + height);
+    const ImU32 panel = IM_COL32(14, 14, 20, 225);
+    const ImU32 white = IM_COL32(245, 245, 250, 255);
+    const ImU32 muted = IM_COL32(160, 160, 175, 255);
+    const ImU32 ahead = IM_COL32(52, 211, 120, 255);
+    const ImU32 behind = IM_COL32(248, 92, 92, 255);
+    const ImU32 gold = IM_COL32(250, 200, 60, 255);
+    draw::shadow(dl, min, max, px(16.0f), px(18.0f), px(8.0f), 70);
+    draw::rect(dl, min, max, panel, px(16.0f));
+
+    // En-tête : le jeu, la catégorie, le nombre d'essais.
+    const float pad = px(16.0f);
+    draw::textEllipsis(dl, ImVec2(min.x + pad, min.y + px(12.0f)), Weight::ExtraBold, 14.0f, white, m_speedrun.currentTitle(),
+                       width - pad * 2 - px(50.0f));
+    draw::textEllipsis(dl, ImVec2(min.x + pad, min.y + px(32.0f)), Weight::SemiBold, 12.0f, muted, cat->name,
+                       width - pad * 2 - px(50.0f));
+    const std::string attempts = "#" + std::to_string(cat->attempts);
+    const ImVec2 as = draw::measure(Weight::Bold, 12.0f, attempts);
+    draw::text(dl, ImVec2(max.x - pad - as.x, min.y + px(14.0f)), Weight::Bold, 12.0f, muted, attempts);
+
+    // Les splits : nom, écart avec le record, temps.
+    const std::vector<long long>& splits = m_speedrun.splits();
+    const std::vector<char>& golds = m_speedrun.golds();
+    const long long elapsed = m_speedrun.elapsedMs();
+    float y = min.y + px(58.0f);
+    for (int i = first; i < first + shown; ++i) {
+        const speedrun::Segment& seg = cat->segments[static_cast<size_t>(i)];
+        if (i == current)
+            draw::rect(dl, ImVec2(min.x + px(6.0f), y), ImVec2(max.x - px(6.0f), y + rowH), IM_COL32(80, 110, 255, 70), px(8.0f));
+        const float textY = y + (rowH - draw::measure(Weight::SemiBold, 13.0f, "Ag").y) / 2;
+        draw::textEllipsis(dl, ImVec2(min.x + pad, textY), Weight::SemiBold, 13.0f, white, seg.name, width * 0.45f);
+        const bool done = static_cast<size_t>(i) < splits.size() && splits[static_cast<size_t>(i)] >= 0 &&
+                          (current < 0 || i < current);
+        std::string timeText;
+        ImU32 timeColor = muted;
+        std::string deltaText;
+        ImU32 deltaColor = muted;
+        if (done) {
+            const long long t = splits[static_cast<size_t>(i)];
+            timeText = speedrun::formatTime(t);
+            timeColor = white;
+            if (const long long target = m_speedrun.comparison(i); target >= 0) {
+                deltaText = speedrun::formatTime(t - target, true, 1);
+                deltaColor = t <= target ? ahead : behind;
+            }
+            if (static_cast<size_t>(i) < golds.size() && golds[static_cast<size_t>(i)])
+                deltaColor = gold;
+        } else {
+            const long long target = m_speedrun.comparison(i);
+            timeText = speedrun::formatTime(target); // le temps à battre
+            // Split en cours, déjà plus lent que le record : l'écart s'affiche en direct.
+            if (i == current && target >= 0 && elapsed > target) {
+                deltaText = speedrun::formatTime(elapsed - target, true, 1);
+                deltaColor = behind;
+            }
+        }
+        const ImVec2 ts = draw::measure(Weight::Bold, 13.0f, timeText);
+        draw::text(dl, ImVec2(max.x - pad - ts.x, textY), Weight::Bold, 13.0f, timeColor, timeText);
+        if (!deltaText.empty()) {
+            const ImVec2 ds = draw::measure(Weight::Bold, 12.0f, deltaText);
+            draw::text(dl, ImVec2(max.x - pad - px(78.0f) - ds.x, textY + px(1.0f)), Weight::Bold, 12.0f, deltaColor, deltaText);
+        }
+        y += rowH;
+    }
+
+    // Le grand chrono : vert en avance sur le record, rouge en retard, or pour un nouveau record.
+    dl->AddLine(ImVec2(min.x + pad, y + px(6.0f)), ImVec2(max.x - pad, y + px(6.0f)), IM_COL32(255, 255, 255, 30), px(1.0f));
+    ImU32 timerColor = white;
+    const auto state = m_speedrun.state();
+    if (state == speedrun::Speedrun::State::Ready) {
+        timerColor = muted;
+    } else if (state == speedrun::Speedrun::State::Finished) {
+        timerColor = m_speedrun.lastWasPb() ? gold : white;
+    } else if (current >= 0) {
+        const long long target = m_speedrun.comparison(current);
+        timerColor = target < 0 ? white : (elapsed <= target ? ahead : behind);
+    }
+    const std::string timer = speedrun::formatTime(elapsed, false, 2);
+    const ImVec2 big = draw::measure(Weight::ExtraBold, 34.0f, timer);
+    draw::text(dl, ImVec2(max.x - pad - big.x, y + px(12.0f)), Weight::ExtraBold, 34.0f, timerColor, timer);
+
+    // Pied : record, somme des meilleurs, et l'état (enregistrement, run assistée, touches).
+    const float footY = y + px(60.0f);
+    const std::string stats = "PB " + speedrun::formatTime(cat->pb()) + "  ·  SoB " + speedrun::formatTime(cat->sumOfBest());
+    draw::text(dl, ImVec2(min.x + pad, footY), Weight::SemiBold, 11.0f, muted, stats);
+    std::string status;
+    ImU32 statusColor = muted;
+    if (m_speedrun.assisted()) {
+        status = "Run assistée (pas de record)";
+        statusColor = gold;
+    } else if (m_recorder.recording()) {
+        status = "REC";
+        statusColor = behind;
+        dl->AddCircleFilled(ImVec2(min.x + pad + px(4.0f), footY + px(22.0f)), px(4.0f), behind, 16);
+    } else if (state == speedrun::Speedrun::State::Ready) {
+        status = "F5 départ · F9 remise à zéro";
+    } else if (state == speedrun::Speedrun::State::Finished) {
+        status = "F9 : nouvelle tentative";
+    } else {
+        status = "F5 split · F6 annuler · F7 passer · F9 reset";
+    }
+    draw::text(dl, ImVec2(min.x + pad + (status == "REC" ? px(14.0f) : 0.0f), footY + px(16.0f)), Weight::Bold, 11.0f,
+               statusColor, status);
+}
+
 void App::drawTimeBadge()
 {
     if (m_timeMode == TimeMode::Normal)
@@ -1947,6 +2227,7 @@ void App::saveState()
 
 void App::loadState()
 {
+    m_speedrun.markAssisted(); // (une run avec un état chargé n'est plus "d'une traite")
     m_ui.notify(m_core->loadState(m_stateFile) ? "État chargé" : "Aucun état à charger");
 }
 

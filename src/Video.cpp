@@ -606,6 +606,10 @@ void Video::renderGame()
         m_gameRect[1] = static_cast<float>(y0) / density;
         m_gameRect[2] = w / density;
         m_gameRect[3] = h / density;
+        m_gamePixels[0] = x0;
+        m_gamePixels[1] = y0;
+        m_gamePixels[2] = static_cast<int>(w);
+        m_gamePixels[3] = static_cast<int>(h);
 
         if (m_frameIsHw) {
             // Image dessinée par le core dans notre framebuffer : copiée
@@ -683,6 +687,21 @@ void Video::swap()
         saveScreenshot(outW, outH);
     }
     SDL_GL_SwapWindow(m_window);
+}
+
+bool Video::readGameArea(std::vector<uint8_t>& out, int& width, int& height)
+{
+    if (!m_context || !m_hasFrame || m_gamePixels[2] <= 0 || m_gamePixels[3] <= 0)
+        return false;
+    width = m_gamePixels[2];
+    height = m_gamePixels[3];
+    out.resize(static_cast<size_t>(width) * height * 4);
+    gl::BindFramebuffer(0x8CA8, 0); // GL_READ_FRAMEBUFFER : l'image de la fenêtre
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+    // BGRA : l'ordre attendu par l'encodeur de Windows (pas de conversion à faire).
+    glReadPixels(m_gamePixels[0], m_gamePixels[1], width, height, GL_BGRA, GL_UNSIGNED_BYTE, out.data());
+    return true;
 }
 
 void Video::saveScreenshot(int width, int height)

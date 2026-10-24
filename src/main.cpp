@@ -142,6 +142,18 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
             out.testRemove = argv[++i];
         else if (arg == "--import-bios" && i + 1 < argc)
             out.importBios = fromUtf8(argv[++i]);
+        else if (arg == "--export-library" && i + 1 < argc)
+            out.exportLibrary = fromUtf8(argv[++i]);
+        else if (arg == "--test-speedrun" && i + 1 < argc)
+            out.testSpeedrun = argv[++i];
+        else if (arg == "--net-night")
+            out.netTestNight = true;
+        else if (arg == "--test-duplicates")
+            out.testDuplicates = true;
+        else if (arg == "--portable-copy" && i + 1 < argc)
+            out.portableCopy = fromUtf8(argv[++i]);
+        else if (arg == "--drop" && i + 1 < argc)
+            out.drop.push_back(fromUtf8(argv[++i]));
         else if (arg == "--export-bios" && i + 1 < argc)
             out.exportBios = fromUtf8(argv[++i]);
         else if (arg == "--install-external" && i + 1 < argc)

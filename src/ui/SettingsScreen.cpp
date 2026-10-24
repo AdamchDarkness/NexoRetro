@@ -4,6 +4,7 @@
 #include "../CoreOptions.hpp"
 #include "../ExternalSetup.hpp"
 #include "../Lang.hpp"
+#include "../LibraryTools.hpp"
 #include "../UiSounds.hpp"
 #include "../Utf8.hpp"
 #include "Screens.hpp"
@@ -1283,6 +1284,22 @@ void SettingsScreen::draw(UiContext& ctx)
                 return true;
             });
         }
+        {
+            // Taille du texte : toute l'interface grandit avec lui (les
+            // boutons et les cases restent à la taille de leur texte).
+            static const char* const sizes[] = {"Petite", "Normale", "Grande", "Très grande"};
+            static const int zooms[] = {90, 100, 115, 130};
+            int size = 1;
+            for (int i = 0; i < 4; ++i)
+                if (zooms[i] == s.uiZoom)
+                    size = i;
+            if (settingRow("Taille du texte", "Pour toute l'interface (pas pour les jeux)", w,
+                           segmentedWidth({"Petite", "Normale", "Grande", "Très grande"}),
+                           [&] { return segmented("##zoom", sizes, &size); })) {
+                s.uiZoom = zooms[size];
+                changed = true;
+            }
+        }
         changed |= settingRow("Plein écran au lancement", "Sinon le jeu s'ouvre dans la fenêtre (F11 pour basculer)", w,
                               px(46.0f), [&] { return toggle("##fs", &s.fullscreenOnLaunch); });
         changed |= settingRow("Démarrer en Big Picture", "Plein écran, grandes jaquettes, tout à la manette (Start pour l'ouvrir)",
@@ -1381,6 +1398,48 @@ void SettingsScreen::draw(UiContext& ctx)
         valueRow("BIOS", "Fichiers système des consoles", toUtf8(ctx.dir("bios")), "Ouvrir", ctx.dir("bios"));
         valueRow("Sauvegardes", "Parties, états et captures", toUtf8(ctx.dir("saves")), "Ouvrir", ctx.dir("saves"));
         valueRow("Émulateurs", "Les cores libretro (.dll)", toUtf8(ctx.dir("cores")), "Ouvrir", ctx.dir("cores"));
+        // Deux boutons côte à côte, à droite d'une ligne.
+        auto twoButtons = [&](const char* first, const char* second, auto onFirst, auto onSecond) {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            if (button(first, {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f, .fontSize = 13.0f}))
+                onFirst();
+            ImGui::SetCursorScreenPos(ImVec2(p.x + px(140.0f), p.y));
+            if (button(second, {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f, .fontSize = 13.0f}))
+                onSecond();
+            return false;
+        };
+        // Tout Nexo Retro sur une clé USB (la copie se fait en arrière-plan).
+        if (ctx.portableCopy.busy()) {
+            char progress[32];
+            std::snprintf(progress, sizeof(progress), "%d %%", static_cast<int>(ctx.portableCopy.progress() * 100));
+            valueRow("Copie portable", "Copie en cours, vous pouvez continuer à utiliser Nexo Retro", progress, nullptr, {});
+        } else {
+            settingRow("Copie portable",
+                       "Tout Nexo Retro sur une clé USB : jeux, BIOS, sauvegardes, réglages. Elle marche sur n'importe quel PC",
+                       w, px(130.0f), [&] {
+                           if (button("Créer…", {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f,
+                                                 .fontSize = 13.0f}))
+                               ctx.openDialog(DialogPurpose::MakePortable);
+                           return false;
+                       });
+        }
+        settingRow("Exporter la bibliothèque", "La liste de vos jeux, pour un tableur (CSV) ou une page web (HTML)", w,
+                   px(130.0f + 10.0f + 130.0f), [&] {
+                       return twoButtons("CSV", "HTML", [&] { ctx.openDialog(DialogPurpose::ExportLibraryCsv); },
+                                         [&] { ctx.openDialog(DialogPurpose::ExportLibraryHtml); });
+                   });
+        settingRow("Doublons et versions", "Le même jeu présent plusieurs fois : fichier en double, ou autre région", w,
+                   px(130.0f), [&] {
+                       if (button("Rechercher", {.style = ButtonStyle::Outline, .height = 38.0f, .width = 130.0f,
+                                                 .fontSize = 13.0f})) {
+                           m_duplicates = library_tools::findDuplicates(ctx.library.games());
+                           if (m_duplicates.empty())
+                               ctx.notify("Aucun doublon dans votre bibliothèque");
+                           else
+                               m_openDuplicates = true;
+                       }
+                       return false;
+                   });
         if (const size_t hidden = ctx.userData.hiddenCount(); hidden > 0) {
             const std::string count = std::to_string(hidden) + (hidden > 1 ? " jeux" : " jeu");
             settingRow("Jeux retirés", "Retirés de la bibliothèque, mais toujours sur le disque", w,
@@ -1485,9 +1544,103 @@ void SettingsScreen::draw(UiContext& ctx)
         break;
     }
     endCard();
+    drawDuplicates(ctx);
 
     if (changed)
         ctx.settingsChanged();
+}
+
+void SettingsScreen::drawDuplicates(UiContext& ctx)
+{
+    if (ctx.nav.openDuplicates) {
+        ctx.nav.openDuplicates = false;
+        m_duplicates = library_tools::findDuplicates(ctx.library.games());
+        m_openDuplicates = !m_duplicates.empty();
+    }
+    if (m_openDuplicates) {
+        ImGui::OpenPopup("##duplicates");
+        m_openDuplicates = false;
+    }
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(px(760.0f), viewport->Size.x - px(32.0f)),
+                                    std::min(px(640.0f), viewport->Size.y - px(32.0f))));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, theme::Surface);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, px(28.0f, 28.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, px(28.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+    if (ImGui::BeginPopupModal("##duplicates", nullptr, ImGuiWindowFlags_NoDecoration)) {
+        const float width = ImGui::GetContentRegionAvail().x;
+        const ImVec2 top = ImGui::GetCursorPos();
+        text("Doublons et versions", 22.0f, Weight::ExtraBold);
+        int identical = 0;
+        for (const library_tools::Duplicates& d : m_duplicates)
+            identical += d.identical ? 1 : 0;
+        text(std::to_string(identical) + " en double · " + std::to_string(m_duplicates.size() - identical) +
+                 " avec plusieurs versions",
+             13.0f, Weight::Medium, theme::Muted);
+        const ImVec2 after = ImGui::GetCursorPos();
+        ImGui::SetCursorPos(ImVec2(top.x + width - px(40.0f), top.y));
+        if (iconButton("##close", draw::Icon::Close, ButtonStyle::Soft, 40.0f))
+            ImGui::CloseCurrentPopup();
+        ImGui::SetCursorPos(after);
+        textWrapped("« Retirer » enlève le jeu de la bibliothèque : le fichier reste sur le disque (Paramètres > Dossiers "
+                    "pour le réafficher).",
+                    12.0f, Weight::Medium, theme::Muted, width);
+        space(4.0f);
+
+        ImGui::BeginChild("##list", ImVec2(0, 0));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float rowW = ImGui::GetContentRegionAvail().x;
+        const Game* toHide = nullptr;
+        for (size_t gi = 0; gi < m_duplicates.size(); ++gi) {
+            const library_tools::Duplicates& d = m_duplicates[gi];
+            ImGui::PushID(static_cast<int>(gi));
+            space(6.0f);
+            const ImVec2 head = ImGui::GetCursorScreenPos();
+            draw::textEllipsis(dl, head, Weight::ExtraBold, 16.0f, theme::Ink, d.games.front()->title, rowW * 0.6f);
+            const char* kind = d.identical ? "Fichiers identiques" : "Versions différentes";
+            pillAt(dl, ImVec2(head.x + rowW - pillSize(kind, 12.0f).x, head.y), kind, d.identical ? Tone::Warning : Tone::Neutral,
+                   12.0f);
+            ImGui::Dummy(ImVec2(rowW, px(26.0f)));
+            text(d.games.front()->system->name, 12.0f, Weight::SemiBold, theme::Muted);
+            for (const Game* g : d.games) {
+                ImGui::PushID(g);
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                draw::rect(dl, p, ImVec2(p.x + rowW, p.y + px(56.0f)), theme::Ground, px(12.0f));
+                const std::string name = toUtf8(g->path.filename());
+                draw::textEllipsis(dl, ImVec2(p.x + px(14.0f), p.y + px(9.0f)), Weight::Bold, 13.0f, theme::Ink, name,
+                                   rowW - px(170.0f));
+                // La fin du chemin : c'est elle qui distingue deux copies ("…\roms\snes", "…\Jeux\SNES").
+                const std::filesystem::path folder = g->path.parent_path();
+                const std::string where = "…\\" + toUtf8(folder.parent_path().filename() / folder.filename());
+                std::string detail = (g->region.empty() ? std::string() : g->region + " · ") + formatSize(g->size) + " · " + where;
+                draw::textEllipsis(dl, ImVec2(p.x + px(14.0f), p.y + px(30.0f)), Weight::Medium, 12.0f, theme::Muted, detail,
+                                   rowW - px(170.0f));
+                ImGui::SetCursorScreenPos(ImVec2(p.x + rowW - px(124.0f), p.y + px(10.0f)));
+                if (button("Retirer", {.style = ButtonStyle::Outline, .height = 36.0f, .width = 110.0f, .fontSize = 13.0f}))
+                    toHide = g;
+                // (Un élément invisible qui occupe la ligne : ImGui en déduit la hauteur de la liste.)
+                ImGui::SetCursorScreenPos(p);
+                ImGui::Dummy(ImVec2(rowW, px(56.0f)));
+                ImGui::PopID();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+        // Après la boucle : le scan refait la liste des jeux (et invalide nos pointeurs).
+        if (toHide) {
+            ctx.userData.hide(toHide->path);
+            ctx.userData.save();
+            ctx.rescan();
+            m_duplicates = library_tools::findDuplicates(ctx.library.games());
+            if (m_duplicates.empty())
+                ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor();
 }
 
 } // namespace ui

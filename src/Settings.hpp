@@ -14,6 +14,7 @@ struct Settings {
     int scaling = 0;      // 0 = pixels nets, 1 = lissé
     int aspect = 0;       // 0 = d'origine, 1 = 4:3, 2 = 16:9
     bool showFps = false;
+    int uiZoom = 100;     // taille du texte et de l'interface, en % (80 à 150)
     bool preferVulkan = false; // cores 3D qui savent faire les deux : Vulkan plutôt qu'OpenGL
     // Son
     int audioLatency = 1; // 0 = basse, 1 = normale, 2 = sûre
@@ -54,6 +55,11 @@ struct Settings {
     bool appAutoInstall = false;     // la télécharger tout seul, l'installer en quittant l'appli
     long long appLastCheck = 0;      // dernière vérification (secondes depuis 1970, 0 = jamais)
     std::string appIgnoredVersion;   // "Ignorer cette version" : plus de rappel pour elle
+    // Speedrun (écran Speedrun)
+    std::string speedrunFolder;      // où ranger les vidéos des runs ; vide = <données>/speedruns
+    bool speedrunRecord = true;      // enregistrer une vidéo de chaque run
+    int speedrunKeep = 1;            // vidéos gardées : 0 = toutes, 1 = runs terminées, 2 = records seulement
+    bool speedrunResetGame = true;   // remettre le chrono à zéro (F9) relance aussi le jeu
     // Jeu en ligne
     std::string nickname = "Joueur";
     bool netStats = false;      // ping et pertes affichés pendant la partie

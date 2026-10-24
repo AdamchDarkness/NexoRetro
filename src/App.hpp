@@ -7,6 +7,9 @@
 #include "Bios.hpp"
 #include "CoreUpdater.hpp"
 #include "Discord.hpp"
+#include "PortableCopy.hpp"
+#include "Speedrun.hpp"
+#include "VideoRecorder.hpp"
 #include "FileDialogs.hpp"
 #include "FileHasher.hpp"
 #include "Remaps.hpp"
@@ -60,6 +63,12 @@ struct AppOptions {
     int simulatedLatencyMs = 0; // --net-latency : ping simulé (tester sur un seul PC)
     std::string testRemove;     // --test-remove hide|trash : retire le premier jeu (tests)
     std::filesystem::path importBios; // --import-bios <fichier, dossier ou .zip> : comme un dépôt sur l'écran BIOS
+    std::filesystem::path exportLibrary; // --export-library <fichier.csv|.html>
+    std::string testSpeedrun;            // --test-speedrun 60,200,400 : F5 à ces tours de boucle du jeu
+    bool netTestNight = false;           // --net-night : soirée jeu de test (hôte)
+    bool testDuplicates = false;         // --test-duplicates : affiche les doublons dans le journal
+    std::filesystem::path portableCopy; // --portable-copy <dossier> : comme le bouton des Paramètres
+    std::vector<std::filesystem::path> drop; // --drop <fichier> : comme un glisser-déposer (répétable)
     std::filesystem::path exportBios; // --export-bios <fichier.zip> : comme le bouton des Paramètres
     std::string installExternal; // --install-external ps3|ps4|xbox|x360 : comme le bouton "Installer"
     std::string importSystemId;  // --import-system <console> <dossier> : comme "Importer…" (fichiers système)
@@ -124,6 +133,9 @@ private:
     void handlePauseAction(ui::PauseAction action);
     void drawControlsScreen(); // menu pause > Commandes de la console
     void captureRewind();      // photo de l'image qui vient d'être calculée (retour en arrière)
+    void drawSpeedrunOverlay(); // chrono et splits en jeu (mode speedrun)
+    void updateSpeedrun();      // raccourcis du chrono, début et fin de l'enregistrement vidéo
+    void speedrunKey(SDL_Keycode key);
     void drawTimeBadge();      // "Avance rapide x4" / "Retour en arrière" à l'écran
     void saveState();
     void loadState();
@@ -170,9 +182,14 @@ private:
     std::string m_testAppUpdate;   // EMU_TEST_APP_UPDATE (tests) : "", "1", "download" ou "install"
     VoiceChat m_voice;             // chat vocal du salon
     DiscordPresence m_discord;     // "Joue à ..." sur Discord
+    PortableCopy m_portableCopy;   // copie portable sur clé USB (Paramètres > Dossiers)
     std::string m_coreInUse;       // le .dll du jeu en cours (à ne pas mettre à jour pendant la partie)
     Remaps m_remaps;               // commandes propres à chaque console (remaps.txt)
     std::string m_remapKey;        // console (et manette Wii) du jeu en cours
+    speedrun::Speedrun m_speedrun; // chrono, splits et records des speedrunners
+    VideoRecorder m_recorder;      // vidéo MP4 des runs
+    uint64_t m_emuFrames = 0;      // images d'émulation calculées (dates de la vidéo)
+    int m_testSpeedrunLoop = -1;   // --test-speedrun : dernier tour où F5 a été "appuyée"
     bool m_controlsOpen = false;   // écran "Commandes" ouvert dans le menu pause
     int m_testMenuFrames = 0;      // --menu : images jouées avant d'ouvrir le menu
     // Retour en arrière et avance rapide.

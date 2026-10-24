@@ -241,6 +241,36 @@ Test variables: `EMU_VOICE_TEST=tone` (an "A" note instead of the microphone), `
 `EMU_DISCORD_TRACE=1` (everything Discord answers). During automated tests, the real microphone is
 never opened.
 
+## Speedrun
+
+A corner for speedrunners: the **Speedrun** tab at the top. It's a first version, built to grow with the
+community's feedback.
+
+- **Categories and splits** per game (Any%, 100%, Glitchless...): add, rename, reorder, delete splits.
+  The last split stops the timer.
+- **In-game timer**, LiveSplit style, over the top-left of the game: each split with your lead or delay on
+  your personal best (green ahead, red behind), **gold** for a best segment ever, and the big timer.
+- **Personal best, sum of best segments, attempts and finished runs** per category, and the full
+  **history** of your runs (finished, reset at split N, assisted).
+- **MP4 video of every run** (H.264 + AAC, 720p, game image without the timer), encoded by Windows
+  itself (Media Foundation, hardware encoder when available): nothing to install. You choose the
+  **folder** and which videos to keep (all, finished runs only, or records only); each history line
+  has a "Video" button.
+- **"Reset the counter"** brings attempts back to 0 (records and history stay).
+- The timer counts **real time (RTA)**, as on speedrun.com. Loading a state, rewinding or fast-forwarding
+  makes the run **"assisted"**: it stays in the history but can't become a record.
+
+| Key (in game) | Action |
+| --- | --- |
+| F5 | Start, then next split |
+| F6 | Undo the last split |
+| F7 | Skip a split |
+| F9 | Reset the timer (and the game, optional): a new attempt |
+
+"Start the run" in the Speedrun tab launches the game from the beginning with the timer shown; F5 in any
+game also starts it (Any% category). Everything is saved in `speedrun.txt` in the data folder (readable
+in Notepad, follows the portable copy). Not available during online play.
+
 ## Roadmap
 
 - [x] **Step 1**: load a core, display, sound, controllers, saves
@@ -283,6 +313,18 @@ never opened.
 - [x] Lighter library: filters in a window, categories on one line, active filters as chips
 - [x] **Big Picture mode**: full screen, large covers, fully controller-driven
 - [x] **Installer and portable version** published on GitHub Releases, in-app updates
+- [x] **BIOS export and import** (Settings → Saves): a personal .zip backup of your bios folder
+- [x] **Adjustable text size** for the whole interface (Settings → Display)
+- [x] **Game night**: the host prepares a list of games, the next one is picked for everyone after each match
+- [x] **Portable library**: Settings → Folders → "Portable copy" puts everything (program, games, BIOS, saves,
+  settings) on a USB stick that works on any PC; paths are stored relative to the data folder
+- [x] **Games on a NAS / network share**: a `\\NAS\Games` path becomes a watched folder (shown as
+  unreachable when the NAS is off, nothing is forgotten)
+- [x] **Drop a .zip of several ROMs**: each game is extracted into `roms\<console>\` (arcade zips stay as they are)
+- [x] **Library export** to CSV (spreadsheet) or a self-contained HTML page (Settings → Folders)
+- [x] **Duplicates and multiple versions** detection (identical files, other regions), with one-click removal
+- [x] **Speedrun** tab: categories and splits, LiveSplit-style in-game timer, records and gold segments,
+  run history, MP4 video of each run (see the Speedrun section)
 - [ ] Copy-free Vulkan rendering (shared Vulkan/OpenGL image), for very high resolutions
 - [ ] **Friends list** (next update): serverless, through BitTorrent's decentralized directory
   (DHT, like the Tox messenger). Each player has a key, and their "friend code" is their public key;

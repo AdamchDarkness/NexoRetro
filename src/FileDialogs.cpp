@@ -31,9 +31,16 @@ void FileDialogs::openZip(SDL_Window* window, DialogPurpose purpose)
 
 void FileDialogs::saveZip(SDL_Window* window, DialogPurpose purpose, const std::string& suggestedName)
 {
-    // (SDL copie le nom proposé : la chaîne peut disparaître après l'appel.)
+    saveFile(window, purpose, suggestedName, "Archive zip", "zip");
+}
+
+void FileDialogs::saveFile(SDL_Window* window, DialogPurpose purpose, const std::string& suggestedName,
+                           const char* filterName, const char* extension)
+{
+    // (SDL copie le nom proposé et le filtre : ils peuvent disparaître après l'appel.)
+    const SDL_DialogFileFilter filter[] = {{filterName, extension}};
     auto* request = new Request{this, purpose};
-    SDL_ShowSaveFileDialog(&FileDialogs::onResult, request, window, kZipFilter, 1, suggestedName.c_str());
+    SDL_ShowSaveFileDialog(&FileDialogs::onResult, request, window, filter, 1, suggestedName.c_str());
 }
 
 void FileDialogs::openFolder(SDL_Window* window, DialogPurpose purpose)

@@ -32,6 +32,11 @@ public:
     void beginFrame();
     void endFrame();
 
+    // Taille du texte et de toute l'interface (1 = normale, 1.3 = 130 %),
+    // en plus de l'agrandissement demandé par Windows. Appliquée au début
+    // de l'image suivante (les lettres sont alors préparées à la nouvelle taille).
+    void setZoom(float zoom) { m_wantedZoom = zoom; }
+
     // Petit message temporaire en haut à droite ("État sauvegardé").
     void notify(std::string text);
     void drawNotifications();
@@ -45,6 +50,9 @@ private:
     bool m_initialized = false;
     bool m_rendererReady = false;
     bool m_fontsReady = false;
+    float m_displayScale = 1.0f; // celle de Windows (125 %, 150 %...)
+    float m_zoom = 1.0f;
+    float m_wantedZoom = 1.0f;
     std::filesystem::path m_fontDir;
     std::vector<Notification> m_notifications;
 };

@@ -1,5 +1,7 @@
 #include "Audio.hpp"
 
+#include "VideoRecorder.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -51,6 +53,8 @@ void Audio::push(const int16_t* frames, size_t count)
 {
     if (m_stream && !m_muted)
         SDL_PutAudioStreamData(m_stream, frames, static_cast<int>(count * kBytesPerFrame));
+    if (m_recorder && !m_muted)
+        m_recorder->addAudio(frames, count);
 }
 
 double Audio::queuedSeconds() const

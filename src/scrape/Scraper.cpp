@@ -1,6 +1,7 @@
 #include "Scraper.hpp"
 
 #include "../Hash.hpp"
+#include "../PortablePath.hpp"
 #include "../UserData.hpp"
 #include "../Utf8.hpp"
 #include "../net/Http.hpp"
@@ -565,7 +566,7 @@ void Scraper::load()
             info.database = f[13];
         else if (!info.boxart.empty()) // ancien fichier : déduite du dossier images/<base>/<type>/
             info.database = toUtf8(fromUtf8(info.boxart).parent_path().parent_path().filename());
-        m_infos[f[0]] = std::move(info);
+        m_infos[portable::load(f[0], portable::baseOf(m_dir.parent_path()))] = std::move(info);
     }
 }
 
@@ -578,7 +579,7 @@ void Scraper::save() const
         return file.empty() ? std::string() : toUtf8(fromUtf8(file).lexically_relative(m_dir));
     };
     for (const auto& [key, i] : m_infos) {
-        out << key << '\t' << (i.status == GameInfo::Status::Found) << '\t' << i.byCrc << '\t' << i.name << '\t'
+        out << portable::store(key, portable::baseOf(m_dir.parent_path())) << '\t' << (i.status == GameInfo::Status::Found) << '\t' << i.byCrc << '\t' << i.name << '\t'
             << i.genre << '\t' << i.developer << '\t' << i.publisher << '\t' << i.year << '\t' << i.players << '\t'
             << relative(i.boxart) << '\t' << relative(i.snap) << '\t' << relative(i.titleScreen) << '\t' << i.time
             << '\t' << i.database << '\n';

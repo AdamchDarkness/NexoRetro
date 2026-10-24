@@ -91,6 +91,12 @@ public:
     // modifié le jeu ; la liste est alors retriée.
     void refine(const std::function<bool(Game&)>& change);
 
+    // Dossier surveillé injoignable au dernier scan (NAS éteint, clé USB
+    // débranchée...) : ses jeux sont absents, mais rien n'est oublié.
+    bool isOffline(const std::filesystem::path& folder) const;
+    // Un dossier sur le réseau : \\nas\jeux, ou un lecteur réseau (Z:).
+    static bool isNetworkPath(const std::filesystem::path& folder);
+
     const std::filesystem::path& romsDir() const { return m_romsDir; }
     const std::filesystem::path& coresDir() const { return m_coresDir; }
 
@@ -101,6 +107,7 @@ private:
     std::filesystem::path m_coresDir;
     std::vector<Game> m_games;
     std::vector<std::filesystem::path> m_biosFound;
+    std::vector<std::string> m_offline; // clés (UserData::keyOf) des dossiers injoignables
     std::map<std::string, std::filesystem::path> m_externalPaths;
 };
 

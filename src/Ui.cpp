@@ -39,7 +39,10 @@ bool Ui::init(SDL_Window* window, const std::filesystem::path& fontDir)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
 
     // Écrans haute résolution : Windows peut demander un agrandissement (125 %, 150 %...).
-    theme::setScale(SDL_GetWindowDisplayScale(window));
+    m_displayScale = SDL_GetWindowDisplayScale(window);
+    if (m_displayScale <= 0.0f)
+        m_displayScale = 1.0f;
+    theme::setScale(m_displayScale * m_zoom);
     m_fontDir = fontDir;
     theme::loadFonts(fontDir, lang::current());
     theme::applyImGuiStyle();
@@ -82,6 +85,14 @@ void Ui::beginFrame()
             initRenderer();
         m_fontsReady = false;
         SDL_Log("Polices rechargées pour la langue %s", lang::current().c_str());
+    }
+    // Nouvelle taille d'interface : tout est dessiné en px(), il suffit de
+    // changer l'échelle (et les arrondis du style, eux aussi en px()).
+    if (m_wantedZoom != m_zoom) {
+        m_zoom = m_wantedZoom;
+        theme::setScale(m_displayScale * m_zoom);
+        theme::applyImGuiStyle();
+        m_fontsReady = false;
     }
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL3_NewFrame();

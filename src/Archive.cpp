@@ -1,5 +1,7 @@
 #include "Archive.hpp"
 
+#include "Utf8.hpp"
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -29,6 +31,46 @@ int runHidden(const std::wstring& commandLine)
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return static_cast<int>(code);
+}
+
+// Pareil, mais en récupérant ce que le programme écrit (sa sortie standard).
+// [Windows] Un "tuyau" (pipe) : le programme écrit d'un côté, on lit de
+// l'autre. On lit pendant qu'il tourne : un tuyau plein le bloquerait.
+std::string runCaptured(const std::wstring& commandLine, int& code)
+{
+    code = -1;
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE}; // TRUE : le programme lancé hérite du tuyau
+    HANDLE readEnd = nullptr;
+    HANDLE writeEnd = nullptr;
+    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0))
+        return {};
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0); // notre côté, lui, ne s'hérite pas
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writeEnd;
+    si.hStdError = writeEnd;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION pi{};
+    std::wstring line = commandLine;
+    const BOOL started =
+        CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(writeEnd); // sinon la lecture n'aurait jamais de fin
+    std::string output;
+    if (started) {
+        char buffer[4096];
+        DWORD got = 0;
+        while (ReadFile(readEnd, buffer, sizeof(buffer), &got, nullptr) && got > 0)
+            output.append(buffer, got);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        DWORD exitCode = 1;
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+        code = static_cast<int>(exitCode);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    CloseHandle(readEnd);
+    return output;
 }
 
 // "C:\Windows\System32\tar.exe", entre guillemets : le chemin complet, pour
@@ -61,6 +103,31 @@ bool zipFolder(const fs::path& folder, const fs::path& file)
     // dossier, et "." prend tout son contenu.
     return runHidden(tar() + L" -a -cf " + quoted(file) + L" -C " + quoted(folder) + L" .") == 0 &&
            fs::exists(file, ec);
+}
+
+std::vector<fs::path> list(const fs::path& file)
+{
+    // "tar -tf" : une ligne par élément ; les dossiers finissent par "/".
+    // (Les accents des noms peuvent être mal décodés : ils ne servent ici
+    // qu'à reconnaître des extensions, c'est sans importance.)
+    int code = 0;
+    const std::string output = runCaptured(tar() + L" -tf " + quoted(file), code);
+    std::vector<fs::path> files;
+    if (code != 0)
+        return files;
+    size_t start = 0;
+    while (start < output.size()) {
+        size_t end = output.find('\n', start);
+        if (end == std::string::npos)
+            end = output.size();
+        std::string name = output.substr(start, end - start);
+        if (!name.empty() && name.back() == '\r')
+            name.pop_back();
+        if (!name.empty() && name.back() != '/' && name.back() != '\\')
+            files.push_back(fromUtf8(name));
+        start = end + 1;
+    }
+    return files;
 }
 
 } // namespace archive

@@ -1,11 +1,14 @@
 // Ajouter des jeux : zone de dépôt, analyse des fichiers ajoutés (console
 // reconnue, à vérifier, non prise en charge), dossiers surveillés, scraping.
 
+#include "../Archive.hpp"
 #include "../Utf8.hpp"
 #include "Screens.hpp"
 #include "Widgets.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <set>
 #include <system_error>
 
 namespace fs = std::filesystem;
@@ -14,10 +17,110 @@ using theme::Weight;
 
 namespace ui {
 
+namespace {
+
+std::string lowerExtension(const fs::path& file)
+{
+    std::string ext = toUtf8(file.extension());
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext;
+}
+
+// Un fichier qui ressemble à un jeu de console (pas à un morceau de jeu
+// d'arcade, dont les fichiers ont des extensions quelconques).
+bool looksLikeGame(const fs::path& file)
+{
+    static const char* const discs[] = {".cue", ".chd", ".iso", ".gdi", ".cdi", ".m3u", ".rvz", ".cso", ".pbp", ".wbfs"};
+    const std::string ext = lowerExtension(file);
+    if (std::find(std::begin(discs), std::end(discs), ext) != std::end(discs))
+        return true;
+    const System* system = Library::guessSystem(file);
+    return system && std::string_view(system->id) != "arcade" && std::string_view(system->id) != "neogeo";
+}
+
+} // namespace
+
+// Un .zip (ou .7z) qui contient des jeux de console : une compilation
+// ("Tous les jeux GBA.zip"), ou une seule cartouche compressée. Sans ça, il
+// passerait pour un jeu d'arcade (les jeux d'arcade SONT des .zip).
+// On décompresse, puis chaque jeu va dans roms/<console>/. Renvoie false si
+// ce n'est pas une archive de jeux (un vrai jeu d'arcade, par exemple).
+bool AddGamesScreen::importPack(UiContext& ctx, const fs::path& archive)
+{
+    const std::string ext = lowerExtension(archive);
+    if (ext != ".zip" && ext != ".7z")
+        return false;
+    const std::vector<fs::path> content = archive::list(archive);
+    if (std::none_of(content.begin(), content.end(), looksLikeGame))
+        return false;
+
+    // Décompressé dans imports/<nom de l'archive>/ : les jeux dont la
+    // console reste à choisir y attendent.
+    std::error_code ec;
+    const fs::path work = ctx.dir("imports") / archive.stem();
+    fs::remove_all(work, ec);
+    if (!archive::extract(archive, work)) {
+        ctx.notify("Impossible de décompresser " + toUtf8(archive.filename()));
+        return true;
+    }
+    // Les pistes d'un .cue (ou les disques d'un .m3u) suivent leur jeu : ce
+    // ne sont pas des jeux à part.
+    std::vector<fs::path> files;
+    for (auto it = fs::recursive_directory_iterator(work, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+        if (it->is_regular_file(ec))
+            files.push_back(it->path());
+    std::set<fs::path> parts;
+    for (const fs::path& f : files) {
+        const std::vector<fs::path> all = Library::filesOf(f);
+        for (size_t i = 1; i < all.size(); ++i)
+            parts.insert(all[i].lexically_normal());
+    }
+    int added = 0;
+    for (const fs::path& f : files) {
+        if (parts.count(f.lexically_normal()) || !looksLikeGame(f))
+            continue;
+        ImportItem item;
+        item.title = cleanTitle(toUtf8(f.stem()));
+        // (Les dossiers de l'archive aident à deviner : "PS2/Jeu.iso".)
+        if (const System* system = Library::guessSystem(f)) {
+            const fs::path dest = ctx.library.romsDir() / system->id;
+            fs::create_directories(dest, ec);
+            for (const fs::path& part : Library::filesOf(f)) {
+                std::error_code moveEc;
+                fs::rename(part, dest / part.filename(), moveEc);
+                if (moveEc) { // (autre disque : copie, puis suppression)
+                    fs::copy_file(part, dest / part.filename(), fs::copy_options::overwrite_existing, moveEc);
+                    fs::remove(part, moveEc);
+                }
+            }
+            item.path = dest / f.filename();
+            item.system = system;
+            item.status = ImportItem::Status::Added;
+            ++added;
+        } else {
+            item.path = f;
+            item.choices = Library::candidatesFor(f);
+            item.status = item.choices.empty() ? ImportItem::Status::Unsupported : ImportItem::Status::Ambiguous;
+        }
+        m_items.insert(m_items.begin(), std::move(item));
+    }
+    // Plus rien à choisir dans le dossier de travail : on l'efface.
+    bool waiting = false;
+    for (const ImportItem& item : m_items)
+        waiting = waiting || (item.status == ImportItem::Status::Ambiguous && item.path.parent_path() == work);
+    if (!waiting)
+        fs::remove_all(work, ec);
+    ctx.notify(std::to_string(added) + (added > 1 ? " jeux ajoutés depuis " : " jeu ajouté depuis ") +
+               toUtf8(archive.filename()));
+    return true;
+}
+
 void AddGamesScreen::import(UiContext& ctx, const std::vector<fs::path>& paths)
 {
     std::error_code ec;
     for (const fs::path& path : paths) {
+        if (!fs::is_directory(path, ec) && importPack(ctx, path))
+            continue;
         ImportItem item;
         item.path = path;
         item.title = cleanTitle(toUtf8(path.stem()));
@@ -156,11 +259,19 @@ void AddGamesScreen::draw(UiContext& ctx)
         ImDrawList* fdl = ImGui::GetWindowDrawList();
         const ImVec2 p = ImGui::GetCursorScreenPos();
         draw::rect(fdl, p, ImVec2(p.x + innerW, p.y + px(56.0f)), theme::Ground, px(14.0f));
-        draw::icon(fdl, draw::Icon::Folder, ImVec2(p.x + px(12.0f), p.y + px(18.0f)), px(20.0f), theme::Muted);
+        // Un dossier réseau (NAS) a son icône ; injoignable, il le dit.
+        const bool network = Library::isNetworkPath(folder);
+        const bool offline = ctx.library.isOffline(folder);
+        draw::icon(fdl, draw::Icon::Folder, ImVec2(p.x + px(12.0f), p.y + px(18.0f)), px(20.0f),
+                   offline ? theme::Warning : network ? theme::Accent : theme::Muted);
         draw::textEllipsis(fdl, ImVec2(p.x + px(44.0f), p.y + px(10.0f)), Weight::Bold, 13.0f, theme::Ink, label,
                            innerW - px(100.0f));
-        draw::text(fdl, ImVec2(p.x + px(44.0f), p.y + px(30.0f)), Weight::Medium, 12.0f, theme::Muted,
-                   std::to_string(games) + (games > 1 ? " jeux" : " jeu"));
+        if (offline)
+            draw::text(fdl, ImVec2(p.x + px(44.0f), p.y + px(30.0f)), Weight::SemiBold, 12.0f, theme::Warning,
+                       network ? "Injoignable : NAS éteint ou réseau coupé ?" : "Introuvable : disque débranché ?");
+        else
+            draw::text(fdl, ImVec2(p.x + px(44.0f), p.y + px(30.0f)), Weight::Medium, 12.0f, theme::Muted,
+                       std::to_string(games) + (games > 1 ? " jeux" : " jeu") + (network ? " · réseau" : ""));
         ImGui::SetCursorScreenPos(ImVec2(p.x + innerW - px(42.0f), p.y + px(12.0f)));
         bool remove = false;
         if (removable)
@@ -196,29 +307,30 @@ void AddGamesScreen::draw(UiContext& ctx)
     endCard();
     space(20.0f);
 
-    // Scraping : présenté, mais pas encore actif.
-    beginCard("##scraping", ImVec2(asideW, px(250.0f)), 22.0f);
-    const ImVec2 top = ImGui::GetCursorPos();
-    text("Scraping", 18.0f, Weight::ExtraBold);
-    const ImVec2 soon = pillSize("Prochaine étape");
-    ImGui::SetCursorPos(ImVec2(top.x + innerW - soon.x, top.y + px(3.0f)));
-    pill("Prochaine étape", Tone::Neutral);
-    space(6.0f);
-    static bool autoScrape = true;
-    static bool videos = false;
-    auto toggleRow = [&](const char* id, const char* label, const char* hintText, bool* value) {
-        const ImVec2 p = ImGui::GetCursorPos();
-        text(label, 14.0f, Weight::Bold);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
-        text(hintText, 12.0f, Weight::Medium, theme::Muted);
-        const ImVec2 after = ImGui::GetCursorPos();
-        ImGui::SetCursorPos(ImVec2(p.x + innerW - px(46.0f), p.y + px(6.0f)));
-        toggle(id, value, true);
-        ImGui::SetCursorPos(after);
-        space(4.0f);
-    };
-    toggleRow("##auto", "Scraper automatiquement", "Jaquette, résumé et date de sortie", &autoScrape);
-    toggleRow("##videos", "Vidéos d'aperçu", "Plus lourd, joue au survol d'un jeu", &videos);
+    // Un dossier sur le réseau (NAS, partage Windows) : on tape son chemin,
+    // la fenêtre de choix de dossier ne montre pas toujours le réseau.
+    std::error_code ec;
+    beginCard("##network", ImVec2(asideW, px(230.0f)), 22.0f);
+    text("Jeux sur un NAS", 18.0f, Weight::ExtraBold);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
+    textWrapped("Un partage réseau devient un dossier surveillé : vos jeux restent sur le NAS.", 13.0f, Weight::Medium,
+                theme::Muted, innerW);
+    space(4.0f);
+    textField("##networkPath", m_networkPath, sizeof(m_networkPath), "\\\\NAS\\Jeux", innerW / theme::scale());
+    space(2.0f);
+    if (button("Ajouter le dossier réseau", {.style = ButtonStyle::Outline, .height = 42.0f, .width = -1.0f,
+                                             .disabled = m_networkPath[0] == '\0'})) {
+        const fs::path folder = fromUtf8(m_networkPath);
+        if (fs::is_directory(folder, ec)) {
+            ctx.userData.addWatchedFolder(folder);
+            ctx.userData.save();
+            ctx.rescan();
+            ctx.notify("Dossier réseau ajouté : " + toUtf8(folder));
+            m_networkPath[0] = '\0';
+        } else {
+            ctx.notify("Dossier introuvable : vérifiez le chemin, et que le NAS est allumé");
+        }
+    }
     endCard();
     ImGui::EndGroup();
 }

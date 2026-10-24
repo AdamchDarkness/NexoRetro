@@ -33,6 +33,11 @@ void Settings::load(const std::filesystem::path& file)
         else if (key == "autoScrape") autoScrape = number != 0;
         else if (key == "nickname" && !value.empty()) nickname = value;
         else if (key == "libraryView") libraryView = std::clamp(number, 0, 5);
+        else if (key == "uiZoom") uiZoom = std::clamp(number, 80, 150);
+        else if (key == "speedrunFolder") speedrunFolder = value;
+        else if (key == "speedrunRecord") speedrunRecord = number != 0;
+        else if (key == "speedrunKeep") speedrunKeep = std::clamp(number, 0, 2);
+        else if (key == "speedrunResetGame") speedrunResetGame = number != 0;
         else if (key == "theme" && !value.empty()) theme = value;
         else if (key == "accentColor") accentColor = value;
         else if (key == "background") background = std::clamp(number, 0, 3);
@@ -84,6 +89,11 @@ void Settings::save(const std::filesystem::path& file) const
         << "autoScrape=" << autoScrape << '\n'
         << "nickname=" << nickname << '\n'
         << "libraryView=" << libraryView << '\n'
+        << "uiZoom=" << uiZoom << '\n'
+        << "speedrunFolder=" << speedrunFolder << '\n'
+        << "speedrunRecord=" << speedrunRecord << '\n'
+        << "speedrunKeep=" << speedrunKeep << '\n'
+        << "speedrunResetGame=" << speedrunResetGame << '\n'
         << "theme=" << theme << '\n'
         << "accentColor=" << accentColor << '\n'
         << "background=" << background << '\n'

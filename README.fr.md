@@ -243,6 +243,36 @@ Variables de test : `EMU_VOICE_TEST=tone` (un « la » à la place du micro), `E
 `EMU_DISCORD_TRACE=1` (tout ce que Discord répond). Pendant les tests automatiques, le vrai micro
 n'est jamais ouvert.
 
+## Speedrun
+
+Un coin pour les speedrunners : l'onglet **Speedrun** en haut. C'est une première version, faite pour
+grandir avec les retours de la communauté.
+
+- **Catégories et splits** par jeu (Any%, 100%, Glitchless...) : ajouter, renommer, réordonner, supprimer
+  des splits. Le dernier split arrête le chrono.
+- **Chrono en jeu**, à la LiveSplit, en haut à gauche de l'image : chaque split avec votre avance ou votre
+  retard sur votre record (vert en avance, rouge en retard), en **or** pour un meilleur segment, et le grand chrono.
+- **Record, somme des meilleurs segments, essais et runs terminées** par catégorie, et l'**historique**
+  complet des runs (terminées, abandonnées au split N, assistées).
+- **Vidéo MP4 de chaque run** (H.264 + AAC, 720p, l'image du jeu sans le chrono), encodée par Windows
+  lui-même (Media Foundation, avec la puce vidéo quand elle sait le faire) : rien à installer. On choisit
+  le **dossier** et les vidéos à garder (toutes, runs terminées, ou records seulement) ; chaque ligne de
+  l'historique a un bouton « Vidéo ».
+- **« Remettre le compteur à zéro »** remet les essais à 0 (les records et l'historique restent).
+- Le chrono compte le **temps réel (RTA)**, comme sur speedrun.com. Charger un état, rembobiner ou accélérer
+  rend la run **« assistée »** : elle reste dans l'historique mais ne peut pas devenir un record.
+
+| Touche (en jeu) | Action |
+| --- | --- |
+| F5 | Départ, puis split suivant |
+| F6 | Annuler le dernier split |
+| F7 | Passer un split |
+| F9 | Remettre le chrono à zéro (et le jeu, au choix) : un nouvel essai |
+
+« Lancer la run » dans l'onglet Speedrun démarre le jeu depuis le début, chrono affiché ; F5 dans n'importe
+quel jeu le lance aussi (catégorie Any%). Tout est enregistré dans `speedrun.txt`, dans le dossier des
+données (lisible au Bloc-notes, suit la copie portable). Indisponible pendant une partie en ligne.
+
 ## Feuille de route
 
 - [x] **Étape 1** : charger un core, afficher, son, manettes, sauvegardes
@@ -285,6 +315,20 @@ n'est jamais ouvert.
 - [x] Bibliothèque allégée : filtres dans une fenêtre, catégories sur une ligne, filtres actifs en pastilles
 - [x] **Mode Big Picture** : plein écran, grandes jaquettes, entièrement à la manette
 - [x] **Installateur et version portable** publiés sur GitHub (Releases), mises à jour depuis l'application
+- [x] **Export et import des BIOS** (Paramètres → Sauvegardes) : une sauvegarde personnelle de votre dossier bios en .zip
+- [x] **Taille du texte réglable** pour toute l'interface (Paramètres → Affichage)
+- [x] **Soirée jeu** : l'hôte prépare une liste de jeux, le suivant est choisi pour tous à la fin de chaque partie
+- [x] **Bibliothèque portable** : Paramètres → Dossiers → « Copie portable » met tout (programme, jeux, BIOS,
+  sauvegardes, réglages) sur une clé USB utilisable sur n'importe quel PC ; les chemins sont notés par
+  rapport au dossier des données
+- [x] **Jeux sur un NAS / partage réseau** : un chemin `\\NAS\Jeux` devient un dossier surveillé (signalé
+  injoignable quand le NAS est éteint, rien n'est oublié)
+- [x] **Glisser-déposer d'un .zip de plusieurs ROM** : chaque jeu est décompressé dans `roms\<console>\`
+  (les zips d'arcade restent tels quels)
+- [x] **Export de la bibliothèque** en CSV (tableur) ou en page HTML autonome (Paramètres → Dossiers)
+- [x] **Détection des doublons et des versions multiples** (fichiers identiques, autres régions), retrait en un clic
+- [x] Onglet **Speedrun** : catégories et splits, chrono en jeu à la LiveSplit, records et segments en or,
+  historique des runs, vidéo MP4 de chaque run (voir la section Speedrun)
 - [ ] Rendu Vulkan sans recopie (image partagée Vulkan/OpenGL), pour les très hautes résolutions
 - [ ] **Liste d'amis** (prochaine mise à jour) : sans serveur, via l'annuaire décentralisé de BitTorrent
   (DHT, comme le messager Tox). Chaque joueur a une clé, son « code ami » est sa clé publique ; il y

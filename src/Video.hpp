@@ -71,6 +71,10 @@ public:
     // Où l'image du jeu est dessinée dans la fenêtre (x, y, largeur, hauteur,
     // en points SDL) : pour viser à la souris.
     const float* gameRect() const { return m_gameRect; }
+    // L'image du jeu telle qu'affichée (BGRA, lignes de bas en haut), pour
+    // l'enregistrement vidéo. À appeler juste après renderGame(), avant
+    // l'interface (le chrono, les menus ne font pas partie de la vidéo).
+    bool readGameArea(std::vector<uint8_t>& out, int& width, int& height);
 
 private:
     // Callbacks donnés au core dans retro_hw_render_callback.
@@ -121,6 +125,7 @@ private:
 
     float m_aspect = 0.0f;
     float m_gameRect[4] = {};
+    int m_gamePixels[4] = {}; // le même rectangle, en pixels OpenGL (origine en bas à gauche)
     float m_aspectOverride = 0.0f;
     bool m_smooth = false;
     bool m_windowSized = false;

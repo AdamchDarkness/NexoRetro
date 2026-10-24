@@ -1,5 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.24)
-project(NexoRetro VERSION 0.3.2 LANGUAGES C CXX)
+project(NexoRetro VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -131,6 +131,10 @@ add_executable(emulateur
     src/Settings.cpp
     src/Bios.cpp
     src/Archive.cpp
+    src/LibraryTools.cpp
+    src/PortableCopy.cpp
+    src/Speedrun.cpp
+    src/VideoRecorder.cpp
     src/FileDialogs.cpp
     src/Hash.cpp
     src/FileHasher.cpp
@@ -164,6 +168,7 @@ add_executable(emulateur
     src/ui/BiosScreen.cpp
     src/ui/FriendsScreen.cpp
     src/ui/SettingsScreen.cpp
+    src/ui/SpeedrunScreen.cpp
     src/ui/PauseMenu.cpp
     src/ui/BigPictureScreen.cpp
 )
@@ -177,8 +182,9 @@ target_link_libraries(emulateur PRIVATE SDL3::SDL3-static OpenGL::GL imgui miniu
 if(WIN32)
     # ws2_32 : les sockets de Windows ; iphlpapi : la liste des cartes réseau ;
     # winhttp : les téléchargements HTTPS (scraping) ; bcrypt : l'empreinte
-    # SHA-256 qui vérifie les mises à jour de l'application.
-    target_link_libraries(emulateur PRIVATE ws2_32 iphlpapi winhttp bcrypt)
+    # SHA-256 qui vérifie les mises à jour de l'application ; mfplat, mfreadwrite,
+    # mfuuid : Media Foundation, l'encodeur vidéo de Windows (vidéos des speedruns).
+    target_link_libraries(emulateur PRIVATE ws2_32 iphlpapi winhttp bcrypt mfplat mfreadwrite mfuuid)
 endif()
 # La version du programme (celle de project() en haut de ce fichier), connue
 # du code sous le nom NEXO_VERSION : la mise à jour automatique la compare à

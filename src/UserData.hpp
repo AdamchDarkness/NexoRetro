@@ -50,8 +50,16 @@ public:
     // Oublie tout d'un jeu (son fichier a été supprimé).
     void forget(const std::filesystem::path& game);
 
+    // Copie portable (clé USB) : écrit ces données dans un autre fichier,
+    // pour un dossier de données ailleurs. "moved" : jeux recopiés dans le
+    // nouveau dossier (ancienne clé -> nouveau chemin complet). Les dossiers
+    // surveillés locaux et les jeux ajoutés à la main sont alors inutiles
+    // (leurs jeux sont dans roms/) ; les dossiers réseau restent.
+    void exportTo(const std::filesystem::path& file, const std::map<std::string, std::string>& moved) const;
+
 private:
     std::filesystem::path m_file;
+    std::filesystem::path m_base; // le dossier des données (chemins relatifs)
     std::map<std::string, GameRecord> m_games;
     std::vector<std::filesystem::path> m_folders;
     std::map<std::string, std::string> m_manual;
