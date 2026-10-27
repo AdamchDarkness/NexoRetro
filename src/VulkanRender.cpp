@@ -2,10 +2,6 @@
 
 #include <SDL3/SDL.h>
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-
 #include <algorithm>
 #include <cstring>
 
@@ -14,6 +10,13 @@ namespace {
 // Nos infos d'application, si le core ne donne pas les siennes.
 const VkApplicationInfo kAppInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "Nexo Retro", 1, "Nexo Retro", 1,
                                  VK_API_VERSION_1_1};
+
+// La bibliothèque Vulkan du système (installée avec le pilote graphique).
+#ifdef _WIN32
+constexpr const char* kVulkanLibrary = "vulkan-1.dll";
+#else
+constexpr const char* kVulkanLibrary = "libvulkan.so";
+#endif
 
 } // namespace
 
@@ -26,23 +29,23 @@ VulkanRender::~VulkanRender()
 
 bool VulkanRender::available()
 {
-    // Vérifié une seule fois : la DLL reste chargée (Windows la partage).
-    static const bool present = LoadLibraryW(L"vulkan-1.dll") != nullptr;
+    // Vérifié une seule fois : la DLL reste chargée (le système la partage).
+    static const bool present = SDL_LoadObject(kVulkanLibrary) != nullptr;
     return present;
 }
 
 bool VulkanRender::loadLibrary()
 {
     if (!m_library)
-        m_library = LoadLibraryW(L"vulkan-1.dll");
+        m_library = SDL_LoadObject(kVulkanLibrary);
     if (!m_library) {
         m_error = "Vulkan n'est pas disponible sur ce PC (pilote graphique trop ancien ?)";
         return false;
     }
-    // [C++] GetProcAddress renvoie un pointeur de fonction "générique" : on
+    // [C++] SDL_LoadFunction renvoie un pointeur de fonction "générique" : on
     // le convertit vers le bon type avec reinterpret_cast.
     vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
-        GetProcAddress(static_cast<HMODULE>(m_library), "vkGetInstanceProcAddr"));
+        SDL_LoadFunction(static_cast<SDL_SharedObject*>(m_library), "vkGetInstanceProcAddr"));
     if (!vkGetInstanceProcAddr) {
         m_error = "vulkan-1.dll est incomplète";
         return false;

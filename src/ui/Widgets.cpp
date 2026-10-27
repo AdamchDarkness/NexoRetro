@@ -66,7 +66,9 @@ bool button(const char* label, const ButtonOptions& o)
     const ImVec2 size(width, px(o.height));
 
     ImGui::BeginDisabled(o.disabled);
-    const bool clicked = ImGui::InvisibleButton(label, size);
+    // (EnableNav : sans lui, ImGui 1.92 ne laisse pas la manette ni le clavier
+    // aller sur un InvisibleButton.)
+    const bool clicked = ImGui::InvisibleButton(label, size, ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     const bool held = ImGui::IsItemActive();
     ImGui::EndDisabled();
@@ -98,7 +100,7 @@ bool button(const char* label, const ButtonOptions& o)
 bool iconButton(const char* id, draw::Icon icon, ButtonStyle style, float size, const char* tip, bool disabled)
 {
     ImGui::BeginDisabled(disabled);
-    const bool clicked = ImGui::InvisibleButton(id, px(size, size));
+    const bool clicked = ImGui::InvisibleButton(id, px(size, size), ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     ImGui::EndDisabled();
     tooltip(tip);
@@ -123,7 +125,7 @@ bool link(const char* label, float size)
 {
     const std::string_view shown = visibleLabel(label);
     const ImVec2 textSize = draw::measure(Weight::Bold, size, shown);
-    const bool clicked = ImGui::InvisibleButton(label, textSize);
+    const bool clicked = ImGui::InvisibleButton(label, textSize, ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     if (hovered)
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -146,7 +148,7 @@ bool chip(const char* id, const char* label, const char* count, ImU32 dot, bool 
     const ImVec2 labelSize = draw::measure(Weight::Bold, fontSize, label);
     const ImVec2 countSize = count ? draw::measure(Weight::SemiBold, fontSize, count) : ImVec2(0, 0);
     const float dotSize = px(8.0f);
-    const bool clicked = ImGui::InvisibleButton(id, ImVec2(chipWidth(label, count), px(38.0f)));
+    const bool clicked = ImGui::InvisibleButton(id, ImVec2(chipWidth(label, count), px(38.0f)), ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
 
     const ImVec2 min = ImGui::GetItemRectMin();
@@ -174,7 +176,7 @@ bool slider(const char* id, int* value, int minValue, int maxValue, float width,
     // Une barre qu'on fait glisser (souris), ou gauche/droite à la manette.
     const float w = px(width);
     const float h = px(28.0f);
-    ImGui::InvisibleButton(id, ImVec2(w, h));
+    ImGui::InvisibleButton(id, ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     const bool active = ImGui::IsItemActive();
     const bool hovered = ImGui::IsItemHovered();
     const ImVec2 min = ImGui::GetItemRectMin();
@@ -214,7 +216,7 @@ bool slider(const char* id, int* value, int minValue, int maxValue, float width,
 bool toggle(const char* id, bool* value, bool disabled)
 {
     ImGui::BeginDisabled(disabled);
-    const bool clicked = ImGui::InvisibleButton(id, px(46.0f, 28.0f));
+    const bool clicked = ImGui::InvisibleButton(id, px(46.0f, 28.0f), ImGuiButtonFlags_EnableNav);
     ImGui::EndDisabled();
     if (clicked && !disabled)
         *value = !*value;
@@ -267,7 +269,7 @@ bool segmented(const char* id, std::span<const char* const> labels, int* current
         const float w = draw::measure(Weight::Bold, fontSize, labels[i]).x + px(28.0f);
         ImGui::SetCursorScreenPos(ImVec2(x, origin.y + inner));
         ImGui::PushID(i);
-        if (ImGui::InvisibleButton("##segment", ImVec2(w, height - inner * 2)) && *current != i) {
+        if (ImGui::InvisibleButton("##segment", ImVec2(w, height - inner * 2), ImGuiButtonFlags_EnableNav) && *current != i) {
             *current = i;
             changed = true;
         }

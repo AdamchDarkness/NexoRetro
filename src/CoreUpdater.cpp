@@ -1,4 +1,5 @@
 #include "CoreUpdater.hpp"
+#include "Compat.hpp"
 
 #include "ExternalInstaller.hpp"
 #include "net/Http.hpp"
@@ -15,7 +16,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* kIndexUrl = "https://buildbot.libretro.com/nightly/windows/x86_64/latest/.index-extended";
+const std::string kIndexUrl = std::string(buildbot::kCoresUrl) + ".index-extended";
 constexpr long long kCheckEverySeconds = 20 * 3600;
 
 long long nowSeconds()
@@ -30,7 +31,7 @@ std::string fileDate(const fs::path& file)
     const auto time = fs::last_write_time(file, ec);
     if (ec)
         return {};
-    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(time);
+    const auto sys = compat::toSystemClock(time);
     const std::time_t t = std::chrono::system_clock::to_time_t(sys);
     std::tm tm{};
     gmtime_s(&tm, &t);
@@ -93,8 +94,9 @@ void CoreUpdater::check(bool force)
             std::istringstream lines(response.body);
             std::string date, crc, file;
             while (lines >> date >> crc >> file)
-                if (file.ends_with(".dll.zip"))
-                    index[file.substr(0, file.size() - 4)] = {date, crc}; // "mgba_libretro.dll"
+                if (file.ends_with(".zip"))
+                    if (const std::string core = buildbot::coreFromServer(file.substr(0, file.size() - 4)); !core.empty())
+                        index[core] = {date, crc}; // "mgba_libretro.dll"
         } else {
             SDL_Log("Mise à jour des cores : liste introuvable (%d %s)", response.status, response.error.c_str());
         }

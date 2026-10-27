@@ -1,5 +1,6 @@
 #include "Covers.hpp"
 
+#include "../GlFunctions.hpp"
 #include "../Utf8.hpp"
 #include "../scrape/Scraper.hpp"
 #include "Draw.hpp"
@@ -7,7 +8,6 @@
 #include "Themes.hpp"
 
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_opengl.h>
 
 // stb_image est une bibliothèque "en un seul en-tête" : ce #define, dans UN
 // seul .cpp, y place le code ; partout ailleurs le .h ne fait que déclarer.

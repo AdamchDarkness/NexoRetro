@@ -33,7 +33,7 @@ bool stateRow(const char* id, const char* name, long long time, float width)
 {
     const bool exists = time > 0;
     ImGui::BeginDisabled(!exists);
-    const bool clicked = ImGui::InvisibleButton(id, ImVec2(width, px(62.0f)));
+    const bool clicked = ImGui::InvisibleButton(id, ImVec2(width, px(62.0f)), ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     ImGui::EndDisabled();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -83,7 +83,7 @@ void drawResume(UiContext& ctx, const Game* game, float width)
     const ImVec2 coverMax(coverMin.x + coverW, coverMin.y + inner.y);
     draw::shadow(dl, coverMin, coverMax, px(16.0f), px(16.0f), px(10.0f), 40);
     ctx.covers.draw(dl, coverMin, coverMax, *game, ctx.userData, px(16.0f), 24.0f);
-    if (ImGui::InvisibleButton("##resumeCover", ImVec2(coverW, inner.y)))
+    if (ImGui::InvisibleButton("##resumeCover", ImVec2(coverW, inner.y), ImGuiButtonFlags_EnableNav))
         ctx.nav.openGame(*game);
 
     // Colonne d'informations, centrée verticalement.
@@ -197,7 +197,7 @@ void HomeScreen::draw(UiContext& ctx)
             ImGui::SameLine(0.0f, tileGap);
         const System& s = *systems[i];
         ImGui::PushID(s.id);
-        if (ImGui::InvisibleButton("##system", ImVec2(sysW, px(88.0f)))) {
+        if (ImGui::InvisibleButton("##system", ImVec2(sysW, px(88.0f)), ImGuiButtonFlags_EnableNav)) {
             ctx.nav.go(Screen::Library);
             ctx.nav.librarySystem = s.id;
         }

@@ -1,4 +1,5 @@
 #include "Speedrun.hpp"
+#include "Compat.hpp"
 
 #include "PortablePath.hpp"
 #include "UserData.hpp"

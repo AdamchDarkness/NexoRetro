@@ -65,9 +65,10 @@ public:
 private:
     void run(const Source& source);
     // Télécharge un .zip et le décompresse dans dest ; check : le fichier qui
-    // doit exister après (relatif à dest).
+    // doit exister après (relatif à dest) ; extracted : le nom qu'il porte
+    // dans l'archive, s'il est différent (il est alors renommé en check).
     void runZip(const std::string& id, const std::string& url, const std::filesystem::path& dest,
-                const std::filesystem::path& check);
+                const std::filesystem::path& check, const std::filesystem::path& extracted = {});
     bool begin(const std::string& id); // prépare une installation (false si occupé)
     void setStep(std::string text);
     void finish(Result result);

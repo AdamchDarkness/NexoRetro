@@ -1,0 +1,122 @@
+// L'appli Android de Nexo Retro.
+//
+// Le code est celui de la version Windows (le CMakeLists.txt du dépôt) :
+// Gradle appelle CMake avec le NDK, qui en fait libmain.so ; SDL (libSDL3.so)
+// et ses classes Java (org.libsdl.app) la font tourner comme sur PC.
+//
+// Deux versions de la même appli ("flavors") :
+//   - mobile : téléphones et tablettes (écran tactile, manette à l'écran) ;
+//   - tv     : Android TV et boîtiers TV (télécommande ou manette, mode Big Picture).
+// Elles peuvent être installées côte à côte (identifiants différents).
+plugins {
+    id 'com.android.application'
+}
+
+// La version : celle de project(NexoRetro VERSION x.y.z) dans CMakeLists.txt,
+// pour que l'APK et l'exe Windows portent toujours le même numéro.
+def cmakeText = file('../../CMakeLists.txt').getText('UTF-8')
+def cmakeVersion = (cmakeText =~ /project\(NexoRetro VERSION (\d+)\.(\d+)\.(\d+)/)[0]
+def appVersionName = "${cmakeVersion[1]}.${cmakeVersion[2]}.${cmakeVersion[3]}"
+def appVersionCode = cmakeVersion[1].toInteger() * 10000 + cmakeVersion[2].toInteger() * 100 + cmakeVersion[3].toInteger()
+
+// La clé de signature des versions publiées : dans des variables
+// d'environnement (GitHub Actions : les "secrets" du dépôt), jamais dans le dépôt.
+def releaseKeystore = System.getenv('NEXO_KEYSTORE')
+
+android {
+    namespace 'org.nexoretro.app'
+    compileSdk 35
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'org.nexoretro.app'
+        minSdk 26        // Android 8.0 (2017) et plus récent
+        targetSdk 35
+        versionCode appVersionCode
+        versionName appVersionName
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static'
+                targets 'emulateur', 'SDL3-shared'
+            }
+        }
+        ndk {
+            // arm64-v8a : téléphones, tablettes et boîtiers TV récents ;
+            // x86_64 : l'émulateur Android du PC (tests).
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    flavorDimensions = ['device']
+    productFlavors {
+        mobile {
+            dimension 'device'
+            buildConfigField 'boolean', 'IS_TV', 'false'
+        }
+        tv {
+            dimension 'device'
+            applicationIdSuffix '.tv'
+            buildConfigField 'boolean', 'IS_TV', 'true'
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (releaseKeystore) {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv('NEXO_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('NEXO_KEY_ALIAS')
+                keyPassword System.getenv('NEXO_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Sans clé (compilation sur un PC), la version "release" est signée
+            // avec la clé de débogage : installable pour tester, pas pour publier.
+            signingConfig releaseKeystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+            version '3.31.5'
+        }
+    }
+
+    sourceSets {
+        main {
+            // Les polices, langues, logos et bases de données de la version PC.
+            assets.srcDirs = ['../../assets']
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true // .so décompressés à l'installation (chargés par SDL)
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+// Les APK publiés portent un nom clair : NexoRetro-0.6.0-mobile.apk, NexoRetro-0.6.0-tv.apk.
+android.applicationVariants.all { variant ->
+    variant.outputs.all {
+        outputFileName = "NexoRetro-${appVersionName}-${variant.flavorName}${variant.buildType.name == 'debug' ? '-debug' : ''}.apk"
+    }
+}

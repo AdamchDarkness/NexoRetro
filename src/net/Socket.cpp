@@ -2,14 +2,16 @@
 
 #include <algorithm>
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include "SocketCompat.hpp"
+#ifdef _WIN32
 #include <iphlpapi.h>
 #include <mstcpip.h>
 #ifndef SIO_UDP_CONNRESET // pas toujours défini selon la version du SDK Windows
 #define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+#else
+#include <ifaddrs.h> // getifaddrs : la liste des cartes réseau (Android)
+#include <net/if.h>
 #endif
 
 #include <SDL3/SDL.h>
@@ -43,14 +45,18 @@ std::string Address::toString() const
 
 NetworkSystem::NetworkSystem()
 {
+#ifdef _WIN32
     WSADATA data;
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
         SDL_Log("Réseau : WSAStartup a échoué");
+#endif
 }
 
 NetworkSystem::~NetworkSystem()
 {
+#ifdef _WIN32
     WSACleanup();
+#endif
 }
 
 std::optional<Address> resolve(const std::string& host, uint16_t port)
@@ -80,6 +86,28 @@ namespace {
 // Les adresses de ce PC et la taille de leur réseau (24 pour 192.168.1.x).
 std::vector<std::pair<uint32_t, int>> adapterAddresses()
 {
+#ifndef _WIN32
+    // getifaddrs : la version POSIX (Android) de GetAdaptersAddresses.
+    std::vector<std::pair<uint32_t, int>> found;
+    ifaddrs* list = nullptr;
+    if (getifaddrs(&list) != 0)
+        return found;
+    for (ifaddrs* a = list; a; a = a->ifa_next) {
+        if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET || !(a->ifa_flags & IFF_UP) || (a->ifa_flags & IFF_LOOPBACK))
+            continue;
+        const uint32_t ip = ntohl(reinterpret_cast<const sockaddr_in*>(a->ifa_addr)->sin_addr.s_addr);
+        if ((ip >> 16) == 0xA9FE) // 169.254.x.x : adresse "sans réseau"
+            continue;
+        int prefix = 0;
+        if (a->ifa_netmask) {
+            const uint32_t mask = ntohl(reinterpret_cast<const sockaddr_in*>(a->ifa_netmask)->sin_addr.s_addr);
+            prefix = __builtin_popcount(mask);
+        }
+        found.push_back({ip, prefix});
+    }
+    freeifaddrs(list);
+    return found;
+#else
     // GetAdaptersAddresses liste toutes les cartes réseau, y compris les
     // cartes virtuelles des VPN comme Radmin ou Hamachi.
     std::vector<std::pair<uint32_t, int>> result;
@@ -106,6 +134,7 @@ std::vector<std::pair<uint32_t, int>> adapterAddresses()
         }
     }
     return result;
+#endif
 }
 
 } // namespace
@@ -159,12 +188,14 @@ bool UdpSocket::open(uint16_t port)
     ioctlsocket(s, FIONBIO, &nonBlocking);
     // Windows signale par une "erreur" qu'un paquet UDP précédent n'a pas
     // trouvé de destinataire ; on désactive ce comportement gênant.
+#ifdef _WIN32
     BOOL reportReset = FALSE;
     DWORD bytes = 0;
     WSAIoctl(s, SIO_UDP_CONNRESET, &reportReset, sizeof(reportReset), nullptr, 0, &bytes, nullptr, nullptr);
+#endif
 
     sockaddr_in bound{};
-    int len = sizeof(bound);
+    socklen_t len = sizeof(bound);
     getsockname(s, reinterpret_cast<sockaddr*>(&bound), &len);
     m_port = ntohs(bound.sin_port);
     m_handle = static_cast<uintptr_t>(s);
@@ -198,7 +229,7 @@ size_t UdpSocket::receive(Address& from, void* buffer, size_t capacity)
     if (!isOpen())
         return 0;
     sockaddr_in addr{};
-    int len = sizeof(addr);
+    socklen_t len = sizeof(addr);
     const int n = recvfrom(static_cast<SOCKET>(m_handle), static_cast<char*>(buffer), static_cast<int>(capacity), 0,
                            reinterpret_cast<sockaddr*>(&addr), &len);
     if (n <= 0)

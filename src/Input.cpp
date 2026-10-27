@@ -549,17 +549,22 @@ void Input::poll()
 
 Input::PadState Input::sampleLocal() const
 {
+    PadState state;
     switch (m_source) {
     case Source::KeyboardOnly:
-        return readDevice(nullptr, true);
+        state = readDevice(nullptr, true);
+        break;
     case Source::Gamepad:
-        return m_sourcePad < static_cast<int>(m_devices.size()) ? readDevice(&m_devices[m_sourcePad], false) : PadState{};
+        state = m_sourcePad < static_cast<int>(m_devices.size()) ? readDevice(&m_devices[m_sourcePad], false) : PadState{};
+        break;
     case Source::Auto:
+        // (En ligne, c'est le seul joueur de ce PC : clavier ET 1re manette,
+        // même si le clavier est "joueur à part" pour les parties locales.)
+        state = readDevice(m_devices.empty() ? nullptr : &m_devices[0], true);
         break;
     }
-    // (En ligne, c'est le seul joueur de ce PC : clavier ET 1re manette,
-    // même si le clavier est "joueur à part" pour les parties locales.)
-    return readDevice(m_devices.empty() ? nullptr : &m_devices[0], true);
+    state.buttons |= m_touchButtons; // (la manette tactile, s'il y en a une)
+    return state;
 }
 
 void Input::setOverride(const std::array<PadState, 4>& ports)

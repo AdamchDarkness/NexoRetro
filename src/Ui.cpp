@@ -7,6 +7,7 @@
 #include "ui/Theme.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h> // (Android : défilement au doigt)
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl3.h>
 #include <SDL3/SDL.h>
@@ -39,9 +40,8 @@ bool Ui::init(SDL_Window* window, const std::filesystem::path& fontDir)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
 
     // Écrans haute résolution : Windows peut demander un agrandissement (125 %, 150 %...).
-    m_displayScale = SDL_GetWindowDisplayScale(window);
-    if (m_displayScale <= 0.0f)
-        m_displayScale = 1.0f;
+    m_window = window;
+    m_displayScale = displayScale();
     theme::setScale(m_displayScale * m_zoom);
     m_fontDir = fontDir;
     theme::loadFonts(fontDir, lang::current());
@@ -54,7 +54,11 @@ bool Ui::initRenderer()
 {
     if (m_rendererReady)
         return true;
+#ifdef __ANDROID__
+    m_rendererReady = ImGui_ImplOpenGL3_Init("#version 300 es"); // OpenGL ES 3
+#else
     m_rendererReady = ImGui_ImplOpenGL3_Init("#version 330 core");
+#endif
     return m_rendererReady;
 }
 
@@ -63,6 +67,24 @@ void Ui::shutdownRenderer()
     if (m_rendererReady)
         ImGui_ImplOpenGL3_Shutdown();
     m_rendererReady = false;
+}
+
+float Ui::displayScale() const
+{
+    float scale = m_window ? SDL_GetWindowDisplayScale(m_window) : 1.0f;
+    if (scale <= 0.0f)
+        scale = 1.0f;
+#ifdef __ANDROID__
+    // Un téléphone a une densité de 3 pour un écran de 1080 pixels de haut :
+    // l'interface, dessinée pour 800 points de haut au moins, n'y tiendrait
+    // pas. On la limite à ce que la hauteur de l'écran permet.
+    int w = 0, h = 0;
+    SDL_GetWindowSizeInPixels(m_window, &w, &h);
+    if (h > 0)
+        scale = std::min(scale, static_cast<float>(std::min(w, h)) / 640.0f);
+    scale = std::max(scale, 1.0f);
+#endif
+    return scale;
 }
 
 void Ui::processEvent(const SDL_Event& event)
@@ -88,6 +110,11 @@ void Ui::beginFrame()
     }
     // Nouvelle taille d'interface : tout est dessiné en px(), il suffit de
     // changer l'échelle (et les arrondis du style, eux aussi en px()).
+    // (Android : l'écran a pu tourner, ou la fenêtre changer de taille.)
+    if (const float ds = displayScale(); ds != m_displayScale) {
+        m_displayScale = ds;
+        m_zoom = -1.0f; // force le recalcul juste en dessous
+    }
     if (m_wantedZoom != m_zoom) {
         m_zoom = m_wantedZoom;
         theme::setScale(m_displayScale * m_zoom);
@@ -105,6 +132,20 @@ void Ui::beginFrame()
 
 void Ui::endFrame()
 {
+#ifdef __ANDROID__
+    // Écran tactile : faire glisser le doigt fait défiler la fenêtre ou la
+    // liste sous lui (ImGui ne fait défiler qu'à la molette de la souris).
+    // Au-delà de quelques pixels, le geste n'est plus un clic mais un défilement.
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    const ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.MouseDragMaxDistanceSqr[0] > 20.0f * 20.0f) {
+        for (ImGuiWindow* w = g.HoveredWindow; w; w = w->ParentWindow)
+            if (w->ScrollMax.y > 0.0f) {
+                ImGui::SetScrollY(w, std::clamp(w->Scroll.y - io.MouseDelta.y, 0.0f, w->ScrollMax.y));
+                break;
+            }
+    }
+#endif
     // Les sons de l'interface : clics, survols, navigation (voir UiSounds.hpp).
     sounds::watchImGui();
     ImGui::Render();

@@ -20,6 +20,7 @@
 #include "../Input.hpp"
 #include "../Library.hpp"
 #include "../LibraryTools.hpp"
+#include "../Paths.hpp"
 #include "../PortableCopy.hpp"
 #include "../Speedrun.hpp"
 #include "../SpeedrunCom.hpp"
@@ -136,7 +137,7 @@ struct UiContext {
     // lance l'installateur (jamais pendant une partie en ligne).
     std::function<void()> installUpdate;
 
-    std::filesystem::path dir(const char* name) const { return dataDir / name; }
+    std::filesystem::path dir(const char* name) const { return paths::data(dataDir, name); }
 };
 
 // Fichiers de sauvegarde d'état d'un jeu.

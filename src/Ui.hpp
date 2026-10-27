@@ -52,6 +52,8 @@ private:
     bool m_initialized = false;
     bool m_rendererReady = false;
     bool m_fontsReady = false;
+    float displayScale() const; // l'agrandissement de l'écran (125 %, 150 %... ; limité sous Android)
+    SDL_Window* m_window = nullptr;
     float m_displayScale = 1.0f; // celle de Windows (125 %, 150 %...)
     float m_zoom = 1.0f;
     float m_wantedZoom = 1.0f;

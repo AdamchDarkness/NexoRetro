@@ -1,0 +1,17 @@
+// Le projet Android de Nexo Retro : une seule appli (module "app"), en deux
+// versions (voir app/build.gradle) : "mobile" (téléphone, tablette) et "tv".
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = 'NexoRetro'
+include ':app'

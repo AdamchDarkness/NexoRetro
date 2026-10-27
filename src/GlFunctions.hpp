@@ -9,9 +9,18 @@
 //
 // Les fonctions d'OpenGL 1.1 (glClear, glViewport, glTexImage2D...) restent
 // appelables directement : elles viennent de opengl32.lib.
+//
+// Android n'a qu'OpenGL ES 3 (NEXO_GLES), la version d'OpenGL des téléphones :
+// presque les mêmes fonctions, toutes fournies directement par libGLESv3.so.
+// On les range quand même dans gl:: pour que le code soit le même partout.
 
 #include <SDL3/SDL.h>
+#ifdef __ANDROID__
+#define NEXO_GLES 1
+#include <GLES3/gl3.h>
+#else
 #include <SDL3/SDL_opengl.h>
+#endif
 
 // "X-macro" : la liste n'est écrite qu'une fois, puis la macro X est
 // redéfinie pour la "déplier" de deux façons différentes (déclaration des
@@ -58,7 +67,12 @@ namespace gl {
 
 // [C++] "inline" sur une variable globale (C++17) : on peut la définir dans
 // un .hpp inclus par plusieurs .cpp sans erreur "symbole défini deux fois".
+#ifdef NEXO_GLES
+// (OpenGL ES ne définit pas les types PFNGL...PROC : on prend celui de la fonction.)
+#define GLFN_DECLARE(type, name) inline decltype(&::gl##name) name = nullptr;
+#else
 #define GLFN_DECLARE(type, name) inline type name = nullptr;
+#endif
 GL_FUNCTION_LIST(GLFN_DECLARE)
 #undef GLFN_DECLARE
 
@@ -67,7 +81,7 @@ inline bool load()
 {
     bool ok = true;
 #define GLFN_LOAD(type, name)                                                  \
-    name = reinterpret_cast<type>(SDL_GL_GetProcAddress("gl" #name));        \
+    name = reinterpret_cast<decltype(name)>(SDL_GL_GetProcAddress("gl" #name)); \
     if (!name) {                                                             \
         SDL_Log("Fonction OpenGL absente : gl%s", #name);                    \
         ok = false;                                                          \

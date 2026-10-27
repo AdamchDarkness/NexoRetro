@@ -3,6 +3,7 @@
 // l'écran courant en dessous.
 
 #include "../ExternalSetup.hpp"
+#include "../Paths.hpp"
 #include "../Trash.hpp"
 #include "../Utf8.hpp"
 #include "../LibraryTools.hpp"
@@ -111,7 +112,7 @@ void Shell::drawTopBar(UiContext& ctx)
     // Logo : l'icône de Nexo Retro, puis son nom. Un clic ramène à l'accueil.
     const float logoWidth = px(30.0f + 10.0f + 5.0f) + draw::measure(Weight::ExtraBold, 17.0f, "Nexo").x +
                             draw::measure(Weight::ExtraBold, 17.0f, "Retro").x;
-    if (ImGui::InvisibleButton("##logo", ImVec2(logoWidth, px(30.0f))))
+    if (ImGui::InvisibleButton("##logo", ImVec2(logoWidth, px(30.0f)), ImGuiButtonFlags_EnableNav))
         ctx.nav.go(Screen::Home);
     brand(ctx, dl, ImGui::GetItemRectMin(), 30.0f, 17.0f, theme::Ink);
 
@@ -129,7 +130,7 @@ void Shell::drawTopBar(UiContext& ctx)
         const ImVec2 size(ts.x + itemPad * 2, navHeight - px(8.0f));
         ImGui::SetCursorScreenPos(ImVec2(x, navMin.y + px(4.0f)));
         ImGui::PushID(item.label);
-        if (ImGui::InvisibleButton("##nav", size)) {
+        if (ImGui::InvisibleButton("##nav", size, ImGuiButtonFlags_EnableNav)) {
             ctx.nav.go(item.screen);
             if (item.screen == Screen::Library)
                 ctx.nav.librarySystem = "all";
@@ -161,7 +162,7 @@ void Shell::drawTopBar(UiContext& ctx)
             const ImVec2 at(origin.x + px(40.0f) + logoWidth + px(18.0f), centerY - size.y / 2);
             if (at.x + size.x + px(12.0f) < navMin.x) {
                 ImGui::SetCursorScreenPos(at);
-                if (ImGui::InvisibleButton("##appUpdate", size)) {
+                if (ImGui::InvisibleButton("##appUpdate", size, ImGuiButtonFlags_EnableNav)) {
                     ctx.nav.go(Screen::Settings);
                     ctx.nav.settingsTab = 11; // l'onglet "Mises à jour"
                 }
@@ -368,7 +369,7 @@ void startPortableCopy(UiContext& ctx, const fs::path& dest)
     if (ctx.portableCopy.busy())
         return;
     PortableCopy::Plan plan;
-    plan.exeDir = fromUtf8(SDL_GetBasePath());
+    plan.exeDir = paths::base();
     plan.dataDir = ctx.dataDir;
     plan.dest = dest;
     plan.userData = ctx.userData;

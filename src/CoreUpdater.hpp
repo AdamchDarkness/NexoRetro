@@ -20,10 +20,50 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 class ExternalInstaller;
+
+// Le serveur de libretro (le "buildbot") publie chaque core pour chaque système.
+// Partout, un core garde son nom Windows ("mgba_libretro.dll") : c'est son
+// identifiant dans les réglages et la bibliothèque. Sur Android, le fichier
+// du serveur (mgba_libretro_android.so) est renommé ainsi une fois
+// décompressé : la suite du programme n'y voit aucune différence.
+namespace buildbot {
+
+#if defined(__ANDROID__) && defined(__aarch64__)
+inline constexpr const char* kCoresUrl = "https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/";
+#elif defined(__ANDROID__) && defined(__x86_64__)
+inline constexpr const char* kCoresUrl = "https://buildbot.libretro.com/nightly/android/latest/x86_64/"; // (émulateur Android du PC)
+#else
+inline constexpr const char* kCoresUrl = "https://buildbot.libretro.com/nightly/windows/x86_64/latest/";
+#endif
+#ifdef __ANDROID__
+inline constexpr std::string_view kServerSuffix = "_libretro_android.so";
+#else
+inline constexpr std::string_view kServerSuffix = "_libretro.dll";
+#endif
+inline constexpr std::string_view kCoreSuffix = "_libretro.dll";
+
+// "mgba_libretro.dll" -> le fichier sur le serveur ("mgba_libretro_android.so" sur Android).
+inline std::string serverFile(const std::string& coreFile)
+{
+    if (!coreFile.ends_with(kCoreSuffix))
+        return coreFile;
+    return coreFile.substr(0, coreFile.size() - kCoreSuffix.size()) + std::string(kServerSuffix);
+}
+
+// L'inverse ; vide si ce n'est pas un core.
+inline std::string coreFromServer(const std::string& file)
+{
+    if (!file.ends_with(kServerSuffix))
+        return {};
+    return file.substr(0, file.size() - kServerSuffix.size()) + std::string(kCoreSuffix);
+}
+
+} // namespace buildbot
 
 class CoreUpdater {
 public:

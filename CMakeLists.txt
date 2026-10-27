@@ -20,8 +20,15 @@ set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
 # Téléchargé et compilé automatiquement au premier "cmake", puis lié en
 # statique : l'exécutable final n'a besoin d'aucune DLL à côté de lui.
 include(FetchContent)
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
+if(ANDROID)
+    # Android : SDL est une bibliothèque partagée (libSDL3.so), chargée par
+    # le code Java de SDL (SDLActivity) avant la nôtre (libmain.so).
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+else()
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+endif()
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     SDL3
@@ -32,8 +39,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(SDL3)
 
-# OpenGL : fourni par le système (opengl32.lib sous Windows).
-find_package(OpenGL REQUIRED)
+# OpenGL : fourni par le système (opengl32.lib sous Windows). Android n'a
+# qu'OpenGL ES 3 (libGLESv3.so), la version « téléphone » d'OpenGL.
+if(ANDROID)
+    add_library(nexo_gl INTERFACE)
+    target_link_libraries(nexo_gl INTERFACE GLESv3 EGL)
+    set(NEXO_SDL SDL3::SDL3-shared)
+else()
+    find_package(OpenGL REQUIRED)
+    add_library(nexo_gl INTERFACE)
+    target_link_libraries(nexo_gl INTERFACE OpenGL::GL)
+    set(NEXO_SDL SDL3::SDL3-static)
+endif()
 
 # --- Vulkan : seulement les en-têtes officiels (Khronos) --------------------
 # Pas de bibliothèque à lier : vulkan-1.dll, installée avec le pilote de la
@@ -66,7 +83,10 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(imgui PUBLIC SDL3::SDL3-static OpenGL::GL)
+target_link_libraries(imgui PUBLIC ${NEXO_SDL} nexo_gl)
+if(ANDROID)
+    target_compile_definitions(imgui PUBLIC IMGUI_IMPL_OPENGL_ES3)
+endif()
 
 # --- miniupnpc : demander à la box d'ouvrir un port (UPnP) ------------------
 set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
@@ -100,10 +120,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(opus)
 
 # --- L'exécutable ----------------------------------------------------------
-add_executable(emulateur
+set(NEXO_SOURCES
     # Le moteur : chargement des cores, image, son, manettes.
     src/main.cpp
-    src/app.rc
     src/App.cpp
     src/Core.cpp
     src/CoreOptions.cpp
@@ -144,6 +163,7 @@ add_executable(emulateur
     src/net/Socket.cpp
     src/net/Crypto.cpp
     src/net/Relay.cpp
+    src/net/Url.cpp
     src/net/Stun.cpp
     src/net/Upnp.cpp
     src/net/InviteCode.cpp
@@ -176,13 +196,33 @@ add_executable(emulateur
     src/ui/PauseMenu.cpp
     src/ui/BigPictureScreen.cpp
 )
-# Le fichier produit s'appelle NexoRetro.exe (la cible garde son nom court).
-# WIN32_EXECUTABLE : une application « fenêtrée » de Windows. Sans ça,
-# Windows ouvre aussi une fenêtre de terminal noire à chaque lancement.
-# (SDL_main.h, dans main.cpp, fait le lien entre WinMain et notre main().)
-set_target_properties(emulateur PROPERTIES OUTPUT_NAME NexoRetro WIN32_EXECUTABLE TRUE)
+if(ANDROID)
+    # Ce qui ne sert que sous Windows (émulateurs externes, Discord, mise à
+    # jour de l'exe, vidéos Media Foundation...) est remplacé par src/android/.
+    list(REMOVE_ITEM NEXO_SOURCES
+        src/ExternalProcess.cpp src/ExternalSetup.cpp src/Discord.cpp src/AppUpdater.cpp
+        src/VideoRecorder.cpp src/Trash.cpp src/Archive.cpp src/net/Http.cpp src/net/Crypto.cpp)
+    list(APPEND NEXO_SOURCES
+        src/android/Jni.cpp
+        src/android/Archive.cpp
+        src/android/Http.cpp
+        src/android/Crypto.cpp
+        src/android/Stubs.cpp
+        src/ui/TouchPad.cpp)
+    # Android charge l'application comme une bibliothèque : libmain.so.
+    add_library(emulateur SHARED ${NEXO_SOURCES})
+    set_target_properties(emulateur PROPERTIES OUTPUT_NAME main)
+else()
+    list(APPEND NEXO_SOURCES src/app.rc src/ui/TouchPad.cpp)
+    add_executable(emulateur ${NEXO_SOURCES})
+    # Le fichier produit s'appelle NexoRetro.exe (la cible garde son nom court).
+    # WIN32_EXECUTABLE : une application « fenêtrée » de Windows. Sans ça,
+    # Windows ouvre aussi une fenêtre de terminal noire à chaque lancement.
+    # (SDL_main.h, dans main.cpp, fait le lien entre WinMain et notre main().)
+    set_target_properties(emulateur PROPERTIES OUTPUT_NAME NexoRetro WIN32_EXECUTABLE TRUE)
+endif()
 target_include_directories(emulateur PRIVATE third_party/libretro third_party/stb)
-target_link_libraries(emulateur PRIVATE SDL3::SDL3-static OpenGL::GL imgui miniupnpc::miniupnpc Vulkan::Headers opus)
+target_link_libraries(emulateur PRIVATE ${NEXO_SDL} nexo_gl imgui miniupnpc::miniupnpc Vulkan::Headers opus)
 if(WIN32)
     # ws2_32 : les sockets de Windows ; iphlpapi : la liste des cartes réseau ;
     # winhttp : les téléchargements HTTPS (scraping) ; bcrypt : l'empreinte
@@ -190,11 +230,16 @@ if(WIN32)
     # mfuuid : Media Foundation, l'encodeur vidéo de Windows (vidéos des speedruns).
     target_link_libraries(emulateur PRIVATE ws2_32 iphlpapi winhttp bcrypt mfplat mfreadwrite mfuuid)
 endif()
+if(ANDROID)
+    # android : fenêtres et ressources du système ; log : le journal (logcat).
+    target_link_libraries(emulateur PRIVATE android log)
+endif()
 # La version du programme (celle de project() en haut de ce fichier), connue
 # du code sous le nom NEXO_VERSION : la mise à jour automatique la compare à
 # celle des versions publiées sur GitHub.
 target_compile_definitions(emulateur PRIVATE NEXO_VERSION="${PROJECT_VERSION}")
 
+if(NOT ANDROID)
 # --- Mini-core de test du jeu en ligne (voir tools/testcore/) ---------------
 add_library(netplay_test_libretro SHARED tools/testcore/testcore.cpp tools/testcore/linktest.cpp)
 target_include_directories(netplay_test_libretro PRIVATE third_party/libretro)
@@ -209,11 +254,15 @@ set_target_properties(vulkan_test_libretro PROPERTIES PREFIX "" CXX_STANDARD 20)
 if(MSVC)
     target_compile_options(netplay_test_libretro PRIVATE /utf-8 /W4)
 endif()
+endif() # NOT ANDROID
 
 # Les polices (assets/) sont copiées à côté de l'exécutable après chaque compilation.
-add_custom_command(TARGET emulateur POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:emulateur>/assets
-)
+# (Android : le projet Gradle les met dans l'APK, voir android/app/build.gradle.)
+if(NOT ANDROID)
+    add_custom_command(TARGET emulateur POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:emulateur>/assets
+    )
+endif()
 
 if(MSVC)
     # /utf-8 : les sources contiennent des accents.

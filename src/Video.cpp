@@ -24,7 +24,14 @@ Video* g_video = nullptr;
 // Le vertex shader fabrique un rectangle (2 triangles) qui couvre toute la
 // zone de dessin, sans aucun buffer de sommets : gl_VertexID vaut 0, 1, 2, 3
 // et donne les coins (0,0) (1,0) (0,1) (1,1).
-const char* const kVertexShader = R"(#version 330 core
+// (OpenGL ES : même langage, mais une autre première ligne, et la précision
+// des nombres à virgule à choisir.)
+#ifdef NEXO_GLES
+#define NEXO_GLSL_HEADER "#version 300 es\nprecision mediump float;\n"
+#else
+#define NEXO_GLSL_HEADER "#version 330 core\n"
+#endif
+const char* const kVertexShader = NEXO_GLSL_HEADER R"(
 uniform vec2 uvScale;  // partie utile de la texture (le core n'utilise pas toujours tout)
 uniform float flipY;   // 1.0 si la première ligne de la texture est le HAUT de l'image
 out vec2 uv;
@@ -36,13 +43,17 @@ void main()
 }
 )";
 
-const char* const kFragmentShader = R"(#version 330 core
+// swapRB : OpenGL ES ne sait pas lire les pixels XRGB8888 (rangés B, V, R en
+// mémoire) : on les envoie tels quels et c'est le shader qui échange R et B.
+const char* const kFragmentShader = NEXO_GLSL_HEADER R"(
 uniform sampler2D frame;
+uniform float swapRB;
 in vec2 uv;
 out vec4 color;
 void main()
 {
-    color = vec4(texture(frame, uv).rgb, 1.0);
+    vec3 c = texture(frame, uv).rgb;
+    color = vec4(mix(c, c.bgr, swapRB), 1.0);
 }
 )";
 
@@ -56,11 +67,19 @@ struct GlPixelFormat {
 
 GlPixelFormat toGl(retro_pixel_format format)
 {
+#ifdef NEXO_GLES
+    // XRGB8888 : lu comme du RGBA (le shader remet les couleurs dans l'ordre) ;
+    // 0RGB1555 : converti en RGB565 avant l'envoi (voir Video::upload).
+    if (format == RETRO_PIXEL_FORMAT_XRGB8888)
+        return {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, 4};
+    return {GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 2};
+#else
     switch (format) {
     case RETRO_PIXEL_FORMAT_XRGB8888: return {GL_RGBA8, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 4};
     case RETRO_PIXEL_FORMAT_RGB565: return {GL_RGB8, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 2};
     default: return {GL_RGBA8, GL_BGRA, GL_UNSIGNED_SHORT_1_5_5_5_REV, 2}; // 0RGB1555
     }
+#endif
 }
 
 GLuint compileShader(GLenum type, const char* source)
@@ -94,7 +113,20 @@ Video::~Video()
 bool Video::open(const char* title, int width, int height, bool autoSize)
 {
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+#ifdef NEXO_GLES
+    // Android choisit le format de l'écran à la création de la fenêtre : il
+    // doit déjà savoir qu'on dessinera avec OpenGL ES 3.
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#endif
+#ifdef __ANDROID__
+    // Android : tout l'écran, sans la barre d'état ni les boutons du système
+    // (ils réapparaissent en glissant le doigt depuis le bord).
+    m_window = SDL_CreateWindow(title, width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN);
+#else
     m_window = SDL_CreateWindow(title, width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+#endif
     if (!m_window) {
         SDL_Log("Création de la fenêtre impossible : %s", SDL_GetError());
         return false;
@@ -174,9 +206,17 @@ bool Video::setPixelFormat(retro_pixel_format format)
 bool Video::requestHwRender(retro_hw_render_callback& callback)
 {
     switch (callback.context_type) {
+#ifdef NEXO_GLES
+    // Android : les cores sont compilés pour OpenGL ES, comme notre fenêtre.
+    case RETRO_HW_CONTEXT_OPENGLES2:
+    case RETRO_HW_CONTEXT_OPENGLES3:
+    case RETRO_HW_CONTEXT_OPENGLES_VERSION:
+        break;
+#else
     case RETRO_HW_CONTEXT_OPENGL:
     case RETRO_HW_CONTEXT_OPENGL_CORE:
         break;
+#endif
     case RETRO_HW_CONTEXT_VULKAN:
         // Le core dessine avec Vulkan : notre fenêtre reste en OpenGL (pour
         // l'interface), et VulkanRender recopie ses images (voir createContext).
@@ -201,7 +241,10 @@ bool Video::requestHwRender(retro_hw_render_callback& callback)
     // ...et on en garde une copie pour appeler context_reset plus tard.
     m_hw = callback;
     m_hwRender = true;
-    SDL_Log("Le core demande OpenGL %s %u.%u", callback.context_type == RETRO_HW_CONTEXT_OPENGL_CORE ? "core" : "compat",
+    SDL_Log("Le core demande OpenGL %s %u.%u",
+            callback.context_type == RETRO_HW_CONTEXT_OPENGL_CORE ? "core"
+            : callback.context_type == RETRO_HW_CONTEXT_OPENGL    ? "compat"
+                                                                   : "ES",
             callback.version_major, callback.version_minor);
     return true;
 }
@@ -212,6 +255,18 @@ bool Video::createContext(const retro_game_geometry& geometry)
     const bool glCore = m_hwRender && !m_hwVulkan; // le core dessine-t-il en OpenGL ?
     if (glCore && m_hw.debug_context)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+#ifdef NEXO_GLES
+    // OpenGL ES : la plus récente des versions 3.x (3.2 pour les cores qui
+    // s'en servent, 3.0 au minimum pour notre interface).
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    for (int minor : {2, 1, 0}) {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
+        m_context = SDL_GL_CreateContext(m_window);
+        if (m_context)
+            break;
+    }
+#else
     if (glCore && m_hw.context_type == RETRO_HW_CONTEXT_OPENGL) {
         // Profil "compatibilité" : l'ancien OpenGL reste disponible. Sans
         // version précise, les pilotes donnent la plus récente possible.
@@ -243,6 +298,7 @@ bool Video::createContext(const retro_game_geometry& geometry)
                 break;
         }
     }
+#endif
 
     if (!m_context) {
         SDL_Log("Création du contexte OpenGL impossible : %s", SDL_GetError());
@@ -347,6 +403,7 @@ bool Video::createProgram()
     gl::Uniform1i(gl::GetUniformLocation(m_program, "frame"), 0); // texture n°0
     m_uvScaleLocation = gl::GetUniformLocation(m_program, "uvScale");
     m_flipYLocation = gl::GetUniformLocation(m_program, "flipY");
+    m_swapRBLocation = gl::GetUniformLocation(m_program, "swapRB");
     gl::UseProgram(0);
 
     // OpenGL "core" exige un Vertex Array Object pour dessiner, même vide.
@@ -477,6 +534,24 @@ void Video::setGeometry(const retro_game_geometry& geometry)
 void Video::upload(const void* pixels, unsigned width, unsigned height, size_t pitch)
 {
     const GlPixelFormat fmt = toGl(m_pixelFormat);
+#ifdef NEXO_GLES
+    if (m_pixelFormat == RETRO_PIXEL_FORMAT_0RGB1555) {
+        // OpenGL ES ne lit pas ce format : chaque pixel 0RRRRRVVVVVBBBBB
+        // devient un RRRRRVVVVVVBBBBB (le vert gagne un bit, recopié du plus fort).
+        m_converted.resize(size_t(width) * height);
+        for (unsigned y = 0; y < height; ++y) {
+            const auto* row = reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(pixels) + y * pitch);
+            uint16_t* out = &m_converted[size_t(y) * width];
+            for (unsigned x = 0; x < width; ++x) {
+                const uint16_t p = row[x];
+                const uint16_t g = (p >> 5) & 0x1F;
+                out[x] = static_cast<uint16_t>(((p & 0x7C00) << 1) | (g << 6) | ((g >> 4) << 5) | (p & 0x1F));
+            }
+        }
+        pixels = m_converted.data();
+        pitch = size_t(width) * 2;
+    }
+#endif
     glBindTexture(GL_TEXTURE_2D, m_frameTexture);
     // pitch = nombre d'octets entre deux lignes (peut dépasser width * bpp).
     // OpenGL veut cette valeur en pixels.
@@ -550,6 +625,7 @@ void Video::resetGlState()
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_BLEND);
     glDisable(GL_CULL_FACE);
+#ifndef NEXO_GLES // (OpenGL ES n'a ni opérations logiques ni glPolygonMode)
     glDisable(GL_COLOR_LOGIC_OP);
     glDisable(GL_POLYGON_OFFSET_FILL);
     glDisable(0x8DB9); // GL_FRAMEBUFFER_SRGB : pas de conversion de couleurs
@@ -558,8 +634,12 @@ void Video::resetGlState()
     glDisable(0x8E51); // GL_SAMPLE_MASK
     for (GLenum i = 0; i < 8; ++i)
         glDisable(0x3000 + i); // GL_CLIP_DISTANCE0..7
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+#else
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glDisable(GL_RASTERIZER_DISCARD);
+#endif
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     // Un "sampler" lié à l'unité 0 remplacerait les réglages de nos textures
     // (un filtrage avec mipmaps sur une texture qui n'en a pas = noir).
     gl::ActiveTexture(GL_TEXTURE0);
@@ -664,6 +744,9 @@ void Video::renderGame()
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
             gl::Uniform2f(m_uvScaleLocation, 1.0f, 1.0f);
             gl::Uniform1f(m_flipYLocation, 1.0f);
+#ifdef NEXO_GLES
+            gl::Uniform1f(m_swapRBLocation, m_textureFormat == RETRO_PIXEL_FORMAT_XRGB8888 ? 1.0f : 0.0f);
+#endif
         }
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
@@ -699,8 +782,12 @@ bool Video::readGameArea(std::vector<uint8_t>& out, int& width, int& height)
     gl::BindFramebuffer(0x8CA8, 0); // GL_READ_FRAMEBUFFER : l'image de la fenêtre
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+#ifdef NEXO_GLES
+    glReadPixels(m_gamePixels[0], m_gamePixels[1], width, height, GL_RGBA, GL_UNSIGNED_BYTE, out.data());
+#else
     // BGRA : l'ordre attendu par l'encodeur de Windows (pas de conversion à faire).
     glReadPixels(m_gamePixels[0], m_gamePixels[1], width, height, GL_BGRA, GL_UNSIGNED_BYTE, out.data());
+#endif
     return true;
 }
 

@@ -7,6 +7,7 @@
 #include "../Utf8.hpp"
 #include "Screens.hpp"
 #include "Widgets.hpp"
+#include "../Compat.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -73,7 +74,7 @@ void SpeedrunScreen::draw(UiContext& ctx)
         const fs::path path = fromUtf8(key);
         const Game* g = ctx.library.find(path);
         ImGui::PushID(key.c_str());
-        const bool clicked = ImGui::InvisibleButton("##game", ImVec2(rowW, px(60.0f)));
+        const bool clicked = ImGui::InvisibleButton("##game", ImVec2(rowW, px(60.0f)), ImGuiButtonFlags_EnableNav);
         const bool hovered = ImGui::IsItemHovered();
         ImGui::PopID();
         const ImVec2 p = ImGui::GetItemRectMin();
@@ -733,7 +734,7 @@ void SpeedrunScreen::drawPicker(UiContext& ctx)
             if (g.system->external() || (!needle.empty() && lower(g.title).find(needle) == std::string::npos))
                 continue;
             ImGui::PushID(&g);
-            const bool clicked = ImGui::InvisibleButton("##row", ImVec2(rowW, px(64.0f)));
+            const bool clicked = ImGui::InvisibleButton("##row", ImVec2(rowW, px(64.0f)), ImGuiButtonFlags_EnableNav);
             const bool hovered = ImGui::IsItemHovered();
             ImGui::PopID();
             const ImVec2 p = ImGui::GetItemRectMin();

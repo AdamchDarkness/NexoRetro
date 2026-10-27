@@ -47,7 +47,7 @@ bool stateCard(const char* id, const char* name, long long time, float width)
 {
     const bool exists = time > 0;
     ImGui::BeginDisabled(!exists);
-    const bool clicked = ImGui::InvisibleButton(id, ImVec2(width, px(150.0f)));
+    const bool clicked = ImGui::InvisibleButton(id, ImVec2(width, px(150.0f)), ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     ImGui::EndDisabled();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -79,7 +79,7 @@ bool saveCard(const UiContext& ctx, const Game& game, float width)
     const long long time = fileTime(file);
     std::error_code ec;
     const std::uintmax_t size = time > 0 ? fs::file_size(file, ec) : 0;
-    const bool clicked = ImGui::InvisibleButton("##gameSave", ImVec2(width, px(150.0f)));
+    const bool clicked = ImGui::InvisibleButton("##gameSave", ImVec2(width, px(150.0f)), ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     if (hovered)
         ImGui::SetTooltip("%s", std::string(lang::tr("Voir, remplacer ou supprimer la sauvegarde du jeu")).c_str());
@@ -267,7 +267,7 @@ void GameScreen::draw(UiContext& ctx)
     sameLine();
     {
         const ImVec2 p = ImGui::GetCursorScreenPos();
-        if (ImGui::InvisibleButton("##favorite", px(54.0f, 54.0f))) {
+        if (ImGui::InvisibleButton("##favorite", px(54.0f, 54.0f), ImGuiButtonFlags_EnableNav)) {
             record.favorite = !record.favorite;
             ctx.userData.save();
         }
@@ -636,7 +636,7 @@ void GameScreen::drawOnlineCovers(UiContext& ctx, const Game& game, float width)
             ImGui::SameLine(0.0f, gap);
         ImGui::PushID(static_cast<int>(i));
         const ImVec2 p = ImGui::GetCursorScreenPos();
-        const bool clicked = ImGui::InvisibleButton("##choice", ImVec2(coverW, coverH + labelH));
+        const bool clicked = ImGui::InvisibleButton("##choice", ImVec2(coverW, coverH + labelH), ImGuiButtonFlags_EnableNav);
         const bool hovered = ImGui::IsItemHovered();
         if (hovered)
             ImGui::SetTooltip("%s", c.name.c_str());

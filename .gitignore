@@ -33,3 +33,13 @@ IDEES*.md
 
 # Réglages locaux et copies de travail de Claude Code : jamais publiés
 .claude/
+
+# Android : compilations et réglages locaux (le projet est dans android/)
+build-android/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+*.jks
+*.keystore

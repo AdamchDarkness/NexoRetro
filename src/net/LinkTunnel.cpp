@@ -3,8 +3,7 @@
 #include "Bytes.hpp"
 #include "Stun.hpp"
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include "SocketCompat.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -146,13 +145,20 @@ void LinkTunnel::run()
         // Attendre (5 ms au plus) qu'une des sockets ait quelque chose à lire.
         fd_set read;
         FD_ZERO(&read);
-        FD_SET(sock(m_udp.handle()), &read);
+        // (Windows ignore le premier paramètre de select ; POSIX veut le plus
+        // grand numéro de socket + 1.)
+        int highest = 0;
+        auto watch = [&](uintptr_t s) {
+            FD_SET(sock(s), &read);
+            highest = std::max(highest, static_cast<int>(sock(s)));
+        };
+        watch(m_udp.handle());
         if (m_listener != kNoSocket && m_core == kNoSocket)
-            FD_SET(sock(m_listener), &read);
+            watch(m_listener);
         if (m_core != kNoSocket)
-            FD_SET(sock(m_core), &read);
+            watch(m_core);
         timeval timeout{0, 5000};
-        select(0, &read, nullptr, nullptr, &timeout);
+        select(highest + 1, &read, nullptr, nullptr, &timeout);
         const uint64_t now = SDL_GetTicks();
 
         // 1. Les paquets de l'ami.

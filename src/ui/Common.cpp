@@ -2,10 +2,12 @@
 // tailles, titres de page, tuiles de jaquette.
 
 #include "../SaveFiles.hpp"
+#include "../Paths.hpp"
 #include "../net/Http.hpp"
 #include "../Utf8.hpp"
 #include "Screens.hpp"
 #include "Widgets.hpp"
+#include "../Compat.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -30,7 +32,7 @@ namespace ui {
 
 std::string logoFile()
 {
-    static const std::string file = toUtf8(fromUtf8(SDL_GetBasePath()) / "assets" / "logo" / "nexo-256.png");
+    static const std::string file = toUtf8(paths::base() / "assets" / "logo" / "nexo-256.png");
     return file;
 }
 
@@ -197,7 +199,7 @@ long long fileTime(const fs::path& file)
     if (ec)
         return 0;
     // [C++20] Conversion de l'horloge des fichiers vers l'horloge système.
-    const auto system = std::chrono::clock_cast<std::chrono::system_clock>(time);
+    const auto system = compat::toSystemClock(time);
     return std::chrono::duration_cast<std::chrono::seconds>(system.time_since_epoch()).count();
 }
 
@@ -230,7 +232,7 @@ TileResult coverTile(const UiContext& ctx, const Game& game, float width, float 
     TileResult result;
     const float textBlock = px(42.0f);
     ImGui::PushID(&game);
-    result.clicked = ImGui::InvisibleButton("##tile", ImVec2(width, height + px(10.0f) + textBlock));
+    result.clicked = ImGui::InvisibleButton("##tile", ImVec2(width, height + px(10.0f) + textBlock), ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     result.doubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
     ImGui::PopID();

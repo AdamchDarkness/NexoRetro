@@ -52,6 +52,47 @@ Cores update on their own as well (see below).
 **Uninstall**: Windows Settings → Apps → Nexo Retro. Your data stays in `%APPDATA%\NexoRetro`
 (delete that folder yourself if you no longer want it).
 
+## Android (phones, tablets, TV)
+
+Two APKs are published on the same Releases page (Android 8.0 or later, 64-bit ARM or x86):
+
+| File | For |
+| --- | --- |
+| `NexoRetro-<version>-mobile.apk` | **Phones and tablets**, with a controller drawn on the touch screen. |
+| `NexoRetro-<version>-tv.apk` | **Android TV / Google TV**: shows up in the TV launcher and starts in Big Picture mode, driven with the remote or a controller. |
+
+Install the APK (allow "install unknown apps" for your browser or file manager), then follow the
+first-run wizard:
+
+- **Your games**: allow Nexo Retro to read your files, then copy your games into the
+  `NexoRetro/roms` folder of the device (USB cable or file manager). A `ROMs` folder at the root of
+  the storage is read too. BIOS go into `NexoRetro/bios`, as on Windows.
+- **Emulators**: the first time you launch a game of a console, its core is downloaded by itself
+  (Android build of the libretro buildbot), then the game starts.
+- **Touch controller**: D-pad, A B X Y, L / R, L2 / R2, Select and Start, several fingers at once;
+  the round button at the top opens the menu (the Android Back key too). It hides itself as soon as
+  a real controller is connected (Settings → Controllers: Automatic / Always / Never, and its
+  transparency).
+- Phones start in Big Picture mode (big covers, made for touch and controllers); tablets in the
+  full interface.
+
+Not available on Android (yet): external emulators (PS3, Switch...: Windows only), MP4 videos of
+speedruns, the Recycle Bin (delete files with the file manager) and one-click app updates (the
+release page opens instead). Online play, the encrypted relay, saves, slots, rewind, speedrun and
+covers work as on Windows.
+
+**Building the APKs**: Android SDK with NDK 28.2 and CMake 3.31, JDK 17 or later. The `android/`
+folder is a Gradle project that compiles the same C++ sources (SDL3 and Dear ImGui with
+OpenGL ES 3):
+
+```bash
+cd android && ./gradlew assembleMobileRelease assembleTvRelease
+```
+
+Without the `NEXO_KEYSTORE`, `NEXO_KEYSTORE_PASSWORD`, `NEXO_KEY_ALIAS` and `NEXO_KEY_PASSWORD`
+environment variables, the APKs are signed with the debug key. The release workflow builds both
+APKs and attaches them to the GitHub release.
+
 ## How it works
 
 The emulators themselves are **libretro cores**: DLLs (`snes9x_libretro.dll`,

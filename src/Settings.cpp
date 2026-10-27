@@ -1,4 +1,5 @@
 #include "Settings.hpp"
+#include "Compat.hpp"
 
 #include "Hash.hpp"
 
@@ -38,6 +39,8 @@ void Settings::load(const std::filesystem::path& file)
         else if (key == "nickname" && !value.empty()) nickname = value;
         else if (key == "libraryView") libraryView = std::clamp(number, 0, 5);
         else if (key == "uiZoom") uiZoom = std::clamp(number, 80, 150);
+        else if (key == "touchPad") touchPad = std::clamp(number, 0, 2);
+        else if (key == "touchOpacity") touchOpacity = std::clamp(number, 20, 100);
         else if (key == "firstRunDone") firstRunDone = number != 0;
         else if (key == "speedrunFolder") speedrunFolder = value;
         else if (key == "speedrunRecord") speedrunRecord = number != 0;
@@ -106,6 +109,8 @@ void Settings::save(const std::filesystem::path& file) const
         << "nickname=" << nickname << '\n'
         << "libraryView=" << libraryView << '\n'
         << "uiZoom=" << uiZoom << '\n'
+        << "touchPad=" << touchPad << '\n'
+        << "touchOpacity=" << touchOpacity << '\n'
         << "firstRunDone=" << firstRunDone << '\n'
         << "speedrunFolder=" << speedrunFolder << '\n'
         << "speedrunRecord=" << speedrunRecord << '\n'

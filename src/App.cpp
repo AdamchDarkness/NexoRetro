@@ -1,4 +1,9 @@
 #include "App.hpp"
+#include "Paths.hpp"
+#ifdef __ANDROID__
+#include "android/Jni.hpp"
+#endif
+#include "Compat.hpp"
 
 #include "Core.hpp"
 #include "Cheats.hpp"
@@ -56,12 +61,12 @@ App::App(AppOptions options)
     : m_options(std::move(options)),
       m_userData(dir("userdata.txt")),
       m_library(dir("roms"), dir("cores")),
-      m_bios(dir("bios"), fromUtf8(SDL_GetBasePath()) / "assets" / "database" / "System.dat"),
+      m_bios(dir("bios"), paths::base() / "assets" / "database" / "System.dat"),
       m_hasher(dir("hashes.txt")),
       m_scraper(dir("scraper")),
       m_installer(dir("emulators")),
       m_coreUpdater(dir("cores")),
-      m_appUpdater(fromUtf8(SDL_GetBasePath())), // (installed.txt est à côté de l'exe, pas des données)
+      m_appUpdater(paths::base()), // (installed.txt est à côté de l'exe, pas des données)
       m_remaps(dir("remaps.txt")),
       m_speedrun(dir("speedrun.txt")),
       // Le contexte des écrans : des références vers nos membres, et des
@@ -72,6 +77,19 @@ App::App(AppOptions options)
                     m_settings.rollParentalDay();
                     if (m_settings.parentalSecondsLeft() == 0) {
                         m_ui.notify("Temps de jeu du jour écoulé : un parent peut en ajouter (Paramètres > Contrôle parental)");
+                        return;
+                    }
+                    // L'émulateur de cette console n'est pas encore là (premier
+                    // jeu de la console, nouvelle installation, téléphone) : on
+                    // le télécharge, et le jeu démarre tout seul ensuite.
+                    if (!game.system->external() && !m_library.hasCore(game)) {
+                        const std::string core = m_library.coreFileFor(game);
+                        if (m_installer.startCore(core, dir("cores")) || m_installer.busySystem() == "core:" + core) {
+                            m_launchAfterCore = LaunchAfterCore{core, game.path, state};
+                            m_ui.notify("Téléchargement de l'émulateur de " + std::string(game.system->name) + "…");
+                        } else {
+                            m_ui.notify("Un autre téléchargement est en cours : réessayez dans un instant");
+                        }
                         return;
                     }
                     // Switch, Xbox, PS3... : un programme à part lance le jeu.
@@ -202,7 +220,8 @@ App::App(AppOptions options)
                     m_nav.bigPicture = on;
                     if (m_options.maxFrames == 0)
                         m_video.setFullscreen(on);
-                }}
+                },
+                nullptr, {}} // (appUpdater et installUpdate : branchés juste en dessous)
 {
     m_covers.setScraper(&m_scraper);
     m_context.appUpdater = &m_appUpdater;
@@ -326,7 +345,7 @@ bool App::init()
     // Le pseudo dans le titre : pratique pour distinguer deux fenêtres.
     const std::string title = "Nexo Retro · " + m_settings.nickname;
     m_video.setTitle(title.c_str());
-    const fs::path fontDir = fromUtf8(SDL_GetBasePath()) / "assets" / "fonts";
+    const fs::path fontDir = paths::base() / "assets" / "fonts";
     if (!m_video.createContext({}) || !m_ui.init(m_video.window(), fontDir) || !m_ui.initRenderer())
         return false;
     applySettings();
@@ -432,7 +451,42 @@ bool App::init()
         SDL_Log("TEST SYSTÈME : %s",
                 external::importSystemFiles(system->id, m_library.externalPath(*system), dir("bios"), files).c_str());
     }
-    if (m_options.bigPicture || m_settings.bigPictureOnStart)
+#ifdef __ANDROID__
+    // Android : les jeux copiés n'importe où dans NexoRetro/roms (pas besoin
+    // d'un sous-dossier par console), et le dossier ROMs habituel s'il existe.
+    {
+        std::error_code ec;
+        bool changed = false;
+        for (const fs::path& folder : {dir("roms"), fs::path("/storage/emulated/0/ROMs")})
+            if (fs::is_directory(folder, ec) &&
+                std::none_of(m_userData.watchedFolders().begin(), m_userData.watchedFolders().end(),
+                             [&](const fs::path& f) { return UserData::keyOf(f) == UserData::keyOf(folder); })) {
+                m_userData.addWatchedFolder(folder);
+                changed = true;
+            }
+        if (changed) {
+            m_userData.save();
+            rescan();
+        }
+    }
+#endif
+    bool bigPicture = m_options.bigPicture || m_settings.bigPictureOnStart;
+#ifdef __ANDROID__
+    // Android : la télé (télécommande, manette) et les téléphones (petit écran)
+    // démarrent en Big Picture, fait pour les grands boutons ; les tablettes,
+    // dans l'interface complète.
+    if (android::isTv())
+        bigPicture = true;
+    else if (m_options.maxFrames == 0) {
+        int w = 0, h = 0;
+        SDL_GetWindowSizeInPixels(m_video.window(), &w, &h);
+        const float density = SDL_GetWindowDisplayScale(m_video.window()) > 0 ? SDL_GetWindowDisplayScale(m_video.window()) : 1.0f;
+        if (std::min(w, h) / density < 600.0f) // moins de 600 dp : un téléphone
+            bigPicture = true;
+    }
+#endif
+    // (Tout premier lancement : l'assistant d'abord, dans l'interface complète.)
+    if (bigPicture && m_settings.firstRunDone)
         m_context.setBigPicture(true);
     if (m_options.libraryView >= 0)
         m_settings.libraryView = m_options.libraryView;
@@ -469,8 +523,10 @@ bool App::init()
 
 int App::run()
 {
-    if (!init())
+    if (!init()) {
+        SDL_Log("Démarrage impossible (voir les messages ci-dessus)");
         return 1;
+    }
 
     Uint64 nextFrame = SDL_GetTicksNS();
     long long frameCount = 0;
@@ -483,6 +539,18 @@ int App::run()
             m_shell.onDialogResult(m_context, result);
         updateNetwork();
         updateServices();
+        // La manette tactile : ses boutons vont au jeu, son bouton de menu ouvre le menu.
+        if (touchPadVisible() && !m_menuOpen) {
+            int w = 0, h = 0;
+            SDL_GetWindowSize(m_video.window(), &w, &h);
+            m_touchPad.update(static_cast<float>(w), static_cast<float>(h));
+            m_input.setTouchButtons(m_touchPad.buttons());
+            if (m_touchPad.takeMenu())
+                setMenuOpen(true);
+        } else {
+            m_touchPad.clear();
+            m_input.setTouchButtons(0);
+        }
         // Où est l'image du jeu : la souris y sert de pointeur (Wiimote).
         m_input.setGameRect(m_video.gameRect()[0], m_video.gameRect()[1], m_video.gameRect()[2], m_video.gameRect()[3]);
 
@@ -679,14 +747,24 @@ int App::run()
     return 0;
 }
 
-void App::handleEvent(const SDL_Event& event)
+void App::handleEvent(const SDL_Event& received)
 {
+    SDL_Event event = received;
+#ifdef __ANDROID__
+    // Le bouton central de la télécommande (Android TV) arrive comme la touche
+    // "Select", que l'interface ne connaît pas : il vaut Entrée (valider).
+    if ((event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) && event.key.key == SDLK_SELECT) {
+        event.key.key = SDLK_RETURN;
+        event.key.scancode = SDL_SCANCODE_RETURN;
+    }
+#endif
     m_ui.processEvent(event);
     // Branchements de manettes, et capture d'une touche à réassigner.
     m_input.handleEvent(event);
 
     switch (event.type) {
     case SDL_EVENT_QUIT:
+        SDL_Log("Fermeture demandée par le système");
         m_running = false;
         break;
 
@@ -717,9 +795,27 @@ void App::handleEvent(const SDL_Event& event)
         }
         break;
 
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_CANCELED:
+        m_touchPad.handleEvent(event);
+        break;
+
     case SDL_EVENT_KEY_DOWN:
         if (event.key.repeat)
             break;
+        // La touche Retour d'Android (ou de la télécommande) : en jeu, le menu ;
+        // ailleurs, revenir à l'accueil.
+        if (event.key.key == SDLK_AC_BACK) {
+            if (m_mode == Mode::Playing)
+                setMenuOpen(!m_menuOpen);
+            else if (m_nav.bigPicture)
+                ; // (Big Picture gère lui-même le retour, comme le bouton B)
+            else if (m_nav.screen != ui::Screen::Home)
+                m_nav.go(ui::Screen::Home);
+            break;
+        }
         if (event.key.key == SDLK_F11) {
             m_video.toggleFullscreen();
         } else if (m_mode == Mode::Interface) {
@@ -785,6 +881,8 @@ void App::drawUi()
         // (Pas par-dessus le menu ni la frise du retour en arrière.)
         if (m_settings.inputDisplay && !m_menuOpen && m_timeMode != TimeMode::Rewinding && m_timeMode != TimeMode::RewindEnd)
             drawInputDisplay();
+        if (touchPadVisible() && !m_menuOpen)
+            m_touchPad.draw(m_settings.touchOpacity / 100.0f);
         if (m_netplay.active())
             drawNetplayOverlay();
         if (m_link.active())
@@ -1849,7 +1947,7 @@ void App::returnToInterface()
 // dans src/app.rc : c'est celle que montre l'Explorateur).
 void App::setWindowIcon()
 {
-    const fs::path file = fromUtf8(SDL_GetBasePath()) / "assets" / "logo" / "nexo-256.png";
+    const fs::path file = paths::base() / "assets" / "logo" / "nexo-256.png";
     SDL_IOStream* io = SDL_IOFromFile(toUtf8(file).c_str(), "rb");
     size_t size = 0;
     void* bytes = io ? SDL_LoadFile_IO(io, &size, true) : nullptr;
@@ -1895,7 +1993,7 @@ void App::applySettings()
     sounds::configure(m_settings.uiSounds, m_settings.uiSoundVolume, static_cast<sounds::Pack>(pack));
     // La langue de l'interface (fichiers assets/lang/<code>.txt).
     if (lang::current() != m_settings.language)
-        lang::setLanguage(fromUtf8(SDL_GetBasePath()) / "assets" / "lang", m_settings.language);
+        lang::setLanguage(paths::base() / "assets" / "lang", m_settings.language);
     for (const System& s : Library::systems())
         if (s.external()) {
             const auto it = m_settings.externalPaths.find(s.id);
@@ -1955,6 +2053,13 @@ void App::updateExternal()
         // mises à jour automatiques sont annoncées toutes ensemble à la fin.)
         if (!m_coreUpdater.onInstalled(installed->systemId.substr(5), installed->ok))
             m_ui.notify(installed->systemId.substr(5) + " " + installed->message);
+        // Le jeu qui attendait cet émulateur démarre.
+        if (m_launchAfterCore && m_launchAfterCore->core == installed->systemId.substr(5)) {
+            const LaunchAfterCore pending = *m_launchAfterCore;
+            m_launchAfterCore.reset();
+            if (const Game* game = installed->ok ? m_library.find(pending.game) : nullptr)
+                m_context.play(*game, pending.state);
+        }
     } else if (installed && installed->systemId.starts_with("files:")) {
         // Fichiers système d'un core (Dolphin) : l'écran BIOS les voit tout de suite.
         m_bios.refresh();
@@ -2037,8 +2142,6 @@ void App::drawControlsScreen()
         m_input.setRemap(m_remaps.get(m_remapKey));
     if (result.back)
         m_controlsOpen = false;
-        m_slotsOpen = false;
-    m_slotsOpen = false;
 }
 
 void App::handlePauseAction(ui::PauseAction action)
@@ -2451,6 +2554,20 @@ void App::drawRewindTimeline()
     const ImVec2 ls = draw::measure(Weight::ExtraBold, 13.0f, label);
     float lx = std::clamp(xOf(now) - ls.x / 2, min.x + px(8.0f), max.x - px(8.0f) - ls.x);
     draw::text(dl, ImVec2(lx, min.y + px(12.0f) + thumbH - ls.y - px(4.0f)), Weight::ExtraBold, 13.0f, IM_COL32_WHITE, label);
+}
+
+bool App::touchPadVisible() const
+{
+    // Par défaut : sur Android (pas en version TV), tant qu'aucune vraie manette n'est branchée.
+    if (m_mode != Mode::Playing || m_settings.touchPad == 2)
+        return false;
+    if (m_settings.touchPad == 1)
+        return true;
+#ifdef __ANDROID__
+    return !android::isTv() && m_input.devices().empty();
+#else
+    return false;
+#endif
 }
 
 void App::drawInputDisplay()

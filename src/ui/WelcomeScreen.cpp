@@ -4,6 +4,10 @@
 // passer à tout moment.
 
 #include "../Lang.hpp"
+#include "../Paths.hpp"
+#ifdef __ANDROID__
+#include "../android/Jni.hpp"
+#endif
 #include "../Utf8.hpp"
 #include "Screens.hpp"
 #include "Widgets.hpp"
@@ -116,7 +120,7 @@ void WelcomeScreen::draw(UiContext& ctx)
                     15.0f, Weight::Medium, theme::Body, inner);
         space(12.0f);
         overline("LANGUE");
-        const std::vector<lang::Language> languages = lang::available(fromUtf8(SDL_GetBasePath()) / "assets" / "lang");
+        const std::vector<lang::Language> languages = lang::available(paths::base() / "assets" / "lang");
         std::vector<const char*> names;
         int current = 0;
         for (size_t i = 0; i < languages.size(); ++i) {
@@ -133,12 +137,38 @@ void WelcomeScreen::draw(UiContext& ctx)
     case 1: {
         overline("ÉTAPE 1 · VOS JEUX");
         text("Où sont vos jeux ?", 26.0f, Weight::ExtraBold);
+#ifdef __ANDROID__
+        textWrapped("Vos jeux se rangent dans le dossier NexoRetro de l'appareil : la console de chaque jeu est reconnue toute "
+                    "seule, et le dossier ROMs de l'appareil est lu aussi s'il existe.",
+                    14.0f, Weight::Medium, theme::Body, inner);
+#else
         textWrapped("Choisissez le dossier où vous rangez vos jeux : il devient un dossier surveillé, la console de chaque jeu "
                     "est reconnue toute seule. Vous pourrez en ajouter d'autres plus tard (bouton Ajouter).",
                     14.0f, Weight::Medium, theme::Body, inner);
+#endif
         space(10.0f);
+#ifdef __ANDROID__
+        // Android : pas de fenêtre "choisir un dossier" ; les jeux se rangent
+        // dans le dossier NexoRetro de l'appareil, lu tout seul.
+        if (!android::hasAllFilesAccess()) {
+            textWrapped("Autorisez d'abord Nexo Retro à lire vos fichiers, puis relancez l'appli.", 14.0f, Weight::SemiBold,
+                        theme::Warning, inner);
+            space(4.0f);
+            if (button("Autoriser l'accès aux fichiers", {.style = ButtonStyle::Primary, .icon = draw::Icon::Folder, .height = 46.0f}))
+                android::requestAllFilesAccess();
+        } else {
+            textWrapped("Copiez vos jeux dans ce dossier de l'appareil (câble USB ou gestionnaire de fichiers) :", 14.0f,
+                        Weight::Medium, theme::Body, inner);
+            space(2.0f);
+            text(toUtf8(ctx.dir("roms")), 14.0f, Weight::Bold, theme::Ink);
+            space(4.0f);
+            if (button("Rechercher mes jeux", {.style = ButtonStyle::Primary, .icon = draw::Icon::Refresh, .height = 46.0f}))
+                ctx.rescan();
+        }
+#else
         if (button("Choisir le dossier de mes jeux", {.style = ButtonStyle::Primary, .icon = draw::Icon::Folder, .height = 46.0f}))
             ctx.openDialog(DialogPurpose::AddGameFolder);
+#endif
         space(10.0f);
         const size_t count = ctx.library.games().size();
         if (count > 0)

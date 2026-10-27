@@ -4,7 +4,11 @@
 //   NexoRetro <core.dll> [jeu]        -> lance directement un jeu
 
 #include "App.hpp"
+#include "Paths.hpp"
 #include "Utf8.hpp"
+#ifdef __ANDROID__
+#include "android/Jni.hpp"
+#endif
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -47,6 +51,10 @@ namespace fs = std::filesystem;
 // copie installée (pour qui préfère tout garder au même endroit).
 fs::path defaultDataDir()
 {
+#ifdef __ANDROID__
+    // Android : /sdcard/NexoRetro (ou le dossier de l'appli, voir android::dataDir).
+    return android::dataDir();
+#endif
     const fs::path exeDir = fromUtf8(SDL_GetBasePath()); // dossier de l'exécutable
 #ifdef _WIN32
     // [C++] std::error_code : la version de exists() qui ne lance pas
@@ -263,6 +271,16 @@ void startLogFile(const fs::path& dataDir)
 int main(int argc, char** argv)
 {
     setupConsole(argc, argv);
+#ifdef __ANDROID__
+    // Android : le lien avec Java, le stockage privé (cores, fichiers de
+    // l'appli), et les fichiers de l'APK recopiés là où le C++ peut les lire.
+    android::init();
+    paths::privateDir() = android::privateDir();
+    android::prepareAssets(NEXO_VERSION);
+    // Toujours en largeur (les jeux et l'interface sont faits pour) : SDL
+    // décide de l'orientation à la création de la fenêtre, d'après ce réglage.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
 
     AppOptions options;
     if (!parseArgs(argc, argv, options)) {

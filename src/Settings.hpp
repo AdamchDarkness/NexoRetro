@@ -25,6 +25,8 @@ struct Settings {
     bool keyboardSeparate = false; // le clavier est un joueur à part (manettes = joueurs 2, 3...)
     bool wiiMousePointer = false;  // Wii : viser avec la souris (sinon au stick droit)
     bool rewind = true;            // retour en arrière (Retour arrière, ou Select + L)
+    int touchPad = 0;              // manette tactile (Android) : 0 = sans manette branchée, 1 = toujours, 2 = jamais
+    int touchOpacity = 60;         // son opacité, 20 à 100 %
     int fastForwardSpeed = 4;      // avance rapide : x2, x3, x4 ou x8 (Tab, ou Select + R)
     // Sauvegardes
     bool autoSaveState = true;

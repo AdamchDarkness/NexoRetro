@@ -80,7 +80,7 @@ private:
     std::string m_error;
     std::string m_gpuName;
 
-    void* m_library = nullptr; // HMODULE de vulkan-1.dll
+    void* m_library = nullptr; // vulkan-1.dll (Windows) ou libvulkan.so (Android)
     VkInstance m_instance = VK_NULL_HANDLE;
     VkPhysicalDevice m_gpu = VK_NULL_HANDLE;
     VkDevice m_device = VK_NULL_HANDLE;

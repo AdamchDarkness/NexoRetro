@@ -2,6 +2,7 @@
 // Chaque modification est enregistrée et appliquée tout de suite.
 
 #include "../CoreOptions.hpp"
+#include "../Paths.hpp"
 #include "../ExternalSetup.hpp"
 #include "../Lang.hpp"
 #include "../LibraryTools.hpp"
@@ -10,6 +11,7 @@
 #include "Screens.hpp"
 #include "Themes.hpp"
 #include "Widgets.hpp"
+#include "../Compat.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -389,7 +391,7 @@ void SettingsScreen::drawCores(UiContext& ctx, float width)
             hint = ctx.installer.stepText() + (p >= 0.0f ? " " + std::to_string(static_cast<int>(p * 100)) + " %" : "");
         } else if (has) {
             const auto size = fs::file_size(dir / r.file, ec);
-            const auto time = std::chrono::clock_cast<std::chrono::system_clock>(fs::last_write_time(dir / r.file, ec));
+            const auto time = compat::toSystemClock(fs::last_write_time(dir / r.file, ec));
             const long long when = std::chrono::duration_cast<std::chrono::seconds>(time.time_since_epoch()).count();
             char mo[32];
             std::snprintf(mo, sizeof(mo), "%.1f Mo", static_cast<double>(size) / (1024.0 * 1024.0));
@@ -570,7 +572,7 @@ bool colorButton(const char* id, std::string& value, ImU32 fallback, bool allowD
     theme::parseColor(value, color);
     ImGui::PushID(id);
     const ImVec2 size = px(150.0f, 38.0f);
-    const bool clicked = ImGui::InvisibleButton("##swatch", size);
+    const bool clicked = ImGui::InvisibleButton("##swatch", size, ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     const ImVec2 p = ImGui::GetItemRectMin();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -615,7 +617,7 @@ bool colorButton(const char* id, std::string& value, ImU32 fallback, bool allowD
             if (i % 6 != 0)
                 ImGui::SameLine(0.0f, px(8.0f));
             ImGui::PushID(i);
-            if (ImGui::InvisibleButton("##preset", px(34.0f, 34.0f))) {
+            if (ImGui::InvisibleButton("##preset", px(34.0f, 34.0f), ImGuiButtonFlags_EnableNav)) {
                 value = theme::formatColor(theme::rgb(kSwatches[i]));
                 changed = true;
             }
@@ -669,7 +671,7 @@ void SettingsScreen::drawAppearance(UiContext& ctx, float width, bool& changed)
             if (i % columns != 0)
                 ImGui::SameLine(0.0f, gap);
             ImGui::PushID(t.id.c_str());
-            const bool clicked = ImGui::InvisibleButton("##theme", ImVec2(cardW, previewH + px(34.0f)));
+            const bool clicked = ImGui::InvisibleButton("##theme", ImVec2(cardW, previewH + px(34.0f)), ImGuiButtonFlags_EnableNav);
             const bool hovered = ImGui::IsItemHovered();
             ImGui::PopID();
             const ImVec2 m = ImGui::GetItemRectMin();
@@ -736,7 +738,7 @@ void SettingsScreen::drawAppearance(UiContext& ctx, float width, bool& changed)
                            if (i > 0)
                                ImGui::SameLine(0.0f, px(8.0f));
                            ImGui::PushID(i);
-                           const bool pick = ImGui::InvisibleButton("##grad", px(36.0f, 36.0f));
+                           const bool pick = ImGui::InvisibleButton("##grad", px(36.0f, 36.0f), ImGuiButtonFlags_EnableNav);
                            const bool over = ImGui::IsItemHovered();
                            ImGui::PopID();
                            const ImVec2 m = ImGui::GetItemRectMin();
@@ -1214,7 +1216,7 @@ void SettingsScreen::draw(UiContext& ctx)
     ImDrawList* dl = ImGui::GetWindowDrawList();
     for (int i = 0; i < static_cast<int>(std::size(tabs)); ++i) {
         ImGui::PushID(i);
-        if (ImGui::InvisibleButton("##tab", ImVec2(navW, px(46.0f))))
+        if (ImGui::InvisibleButton("##tab", ImVec2(navW, px(46.0f)), ImGuiButtonFlags_EnableNav))
             m_tab = tabs[i].id;
         const bool hovered = ImGui::IsItemHovered();
         ImGui::PopID();
@@ -1278,7 +1280,7 @@ void SettingsScreen::draw(UiContext& ctx)
             // La langue de l'interface : le français (celle du code) + un
             // fichier par langue dans assets/lang/.
             const std::vector<lang::Language> languages =
-                lang::available(fromUtf8(SDL_GetBasePath()) / "assets" / "lang");
+                lang::available(paths::base() / "assets" / "lang");
             std::vector<const char*> names;
             int current = 0;
             for (size_t i = 0; i < languages.size(); ++i) {
@@ -1337,6 +1339,17 @@ void SettingsScreen::draw(UiContext& ctx)
     }
     case 2: {
         header("Manettes", "Toutes les manettes sont acceptées. Elles deviennent joueur 1, 2, 3... dans l'ordre de branchement.");
+#ifdef __ANDROID__
+        {
+            // La manette dessinée sur l'écran tactile.
+            static const char* const touch[] = {"Automatique", "Toujours", "Jamais"};
+            changed |= settingRow("Manette tactile", "Automatique : affichée tant qu'aucune vraie manette n'est branchée", w,
+                                  segmentedWidth({"Automatique", "Toujours", "Jamais"}),
+                                  [&] { return segmented("##touchPad", touch, &s.touchPad); });
+            changed |= settingRow("Transparence de la manette tactile", "Plus elle est transparente, mieux on voit le jeu", w,
+                                  px(260.0f), [&] { return slider("##touchOpacity", &s.touchOpacity, 20, 100, 260.0f, " %"); });
+        }
+#endif
         {
             // Le clavier : avec la 1re manette (jouer seul), ou un joueur à part
             // (jouer à deux sur un même PC avec une seule manette).

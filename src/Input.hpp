@@ -96,6 +96,9 @@ public:
     };
     // Les touches du joueur de CE PC (clavier + première manette).
     PadState sampleLocal() const;
+    // La manette dessinée sur l'écran tactile (Android) : ses boutons
+    // s'ajoutent à ceux du joueur 1, comme une manette de plus.
+    void setTouchButtons(uint16_t buttons) { m_touchButtons = buttons; }
     // Pendant une partie en ligne, le core reçoit les touches de tous les
     // joueurs (venues du réseau) au lieu de lire les manettes branchées.
     void setOverride(const std::array<PadState, 4>& ports);
@@ -168,6 +171,7 @@ private:
     Capture m_capture;
     Uint64 m_lastCapture = 0;
     bool m_override = false;
+    uint16_t m_touchButtons = 0;
     // La souris (joueur 1).
     float m_mouseDx = 0.0f, m_mouseDy = 0.0f;
     uint32_t m_mouseButtons = 0;

@@ -23,5 +23,7 @@ public:
     bool running();
 
 private:
+#ifdef _WIN32
     void* m_process = nullptr; // HANDLE Windows
+#endif
 };

@@ -260,7 +260,7 @@ TileResult objectTile(const UiContext& ctx, const Game& game, float width, float
     TileResult result;
     const float textBlock = px(42.0f);
     ImGui::PushID(&game);
-    result.clicked = ImGui::InvisibleButton("##tile", ImVec2(width, artH + px(10.0f) + textBlock));
+    result.clicked = ImGui::InvisibleButton("##tile", ImVec2(width, artH + px(10.0f) + textBlock), ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     result.doubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
     ImGui::PopID();
@@ -552,7 +552,7 @@ void LibraryScreen::drawViewSwitch(UiContext& ctx)
     const int current = std::clamp(ctx.settings.libraryView, 0, static_cast<int>(std::size(kViews)) - 1);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 size = px(68.0f, 38.0f);
-    const bool clicked = ImGui::InvisibleButton("##viewMenu", size);
+    const bool clicked = ImGui::InvisibleButton("##viewMenu", size, ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     if (hovered)
         ImGui::SetTooltip("%s", std::string(lang::tr("Vue")).c_str());
@@ -585,7 +585,7 @@ void LibraryScreen::drawViewSwitch(UiContext& ctx)
                 ImGui::Dummy(px(1.0f, 8.0f));
             }
             ImGui::PushID(i);
-            const bool picked = ImGui::InvisibleButton("##view", ImVec2(menuW - px(16.0f), px(40.0f)));
+            const bool picked = ImGui::InvisibleButton("##view", ImVec2(menuW - px(16.0f), px(40.0f)), ImGuiButtonFlags_EnableNav);
             const bool over = ImGui::IsItemHovered();
             ImGui::PopID();
             const ImVec2 m = ImGui::GetItemRectMin();
@@ -679,7 +679,7 @@ bool LibraryScreen::removablePill(const std::string& label)
     const ImVec2 ts = draw::measure(Weight::Bold, 13.0f, label);
     const ImVec2 size(ts.x + px(14.0f + 8.0f + 12.0f + 12.0f), px(32.0f));
     ImGui::PushID(label.c_str());
-    const bool clicked = ImGui::InvisibleButton("##pill", size);
+    const bool clicked = ImGui::InvisibleButton("##pill", size, ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     ImGui::PopID();
     if (hovered)
@@ -767,7 +767,7 @@ void LibraryScreen::drawList(UiContext& ctx, const std::vector<const Game*>& gam
         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
             const Game& g = *games[static_cast<size_t>(i)];
             ImGui::PushID(&g);
-            const bool clicked = ImGui::InvisibleButton("##row", ImVec2(rowW, rowH));
+            const bool clicked = ImGui::InvisibleButton("##row", ImVec2(rowW, rowH), ImGuiButtonFlags_EnableNav);
             const bool hovered = ImGui::IsItemHovered();
             const bool doubleClicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
             ImGui::PopID();

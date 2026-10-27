@@ -685,7 +685,7 @@ void FriendsScreen::drawGamePicker(UiContext& ctx)
             if (g.system->external())
                 continue; // (émulateur externe : pas de jeu en ligne)
             ImGui::PushID(&g);
-            const bool clicked = ImGui::InvisibleButton("##row", ImVec2(rowW, px(64.0f)));
+            const bool clicked = ImGui::InvisibleButton("##row", ImVec2(rowW, px(64.0f)), ImGuiButtonFlags_EnableNav);
             const bool hovered = ImGui::IsItemHovered();
             ImGui::PopID();
             const ImVec2 p = ImGui::GetItemRectMin();

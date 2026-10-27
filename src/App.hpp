@@ -7,6 +7,8 @@
 #include "Bios.hpp"
 #include "CoreUpdater.hpp"
 #include "Discord.hpp"
+#include "Paths.hpp"
+#include "ui/TouchPad.hpp"
 #include "PortableCopy.hpp"
 #include "Speedrun.hpp"
 #include "SpeedrunCom.hpp"
@@ -143,6 +145,7 @@ private:
     void captureRewind();      // photo de l'image qui vient d'être calculée (retour en arrière)
     void drawSpeedrunOverlay(); // chrono et splits en jeu (mode speedrun)
     void drawInputDisplay();    // les touches appuyées, à l'écran (réglage)
+    bool touchPadVisible() const; // la manette tactile est-elle affichée en jeu ?
     // Emplacements de sauvegarde (8 par jeu), avec une miniature de l'image.
     void drawSlotsScreen();
     void saveSlot(int slot);
@@ -162,7 +165,7 @@ private:
     bool launchExternal(const Game& game); // Switch, Xbox, PS3... : émulateur externe
     void updateExternal();                 // compte le temps de jeu quand il se ferme
 
-    std::filesystem::path dir(const char* name) const { return m_options.dataDir / name; }
+    std::filesystem::path dir(const char* name) const { return paths::data(m_options.dataDir, name); }
 
     AppOptions m_options;
 
@@ -216,6 +219,13 @@ private:
     bool m_parentalWarned = false; // "Plus que 5 minutes" déjà dit pour cette partie
     bool m_controlsOpen = false;   // écran "Commandes" ouvert dans le menu pause
     bool m_slotsOpen = false;      // écran "Emplacements de sauvegarde" ouvert dans le menu pause
+    struct LaunchAfterCore {       // jeu lancé dont l'émulateur se télécharge
+        std::string core;
+        std::filesystem::path game;
+        std::filesystem::path state;
+    };
+    std::optional<LaunchAfterCore> m_launchAfterCore;
+    ui::TouchPad m_touchPad;       // manette à l'écran (téléphones, tablettes)
     int m_pendingSlot = -1;        // emplacement à sauvegarder à la prochaine image (miniature comprise)
     struct RewindThumb {
         uint64_t index = 0;  // numéro de la photo du retour en arrière

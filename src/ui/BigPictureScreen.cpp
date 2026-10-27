@@ -15,6 +15,7 @@
 
 #include "Screens.hpp"
 #include "Widgets.hpp"
+#include "../Compat.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -304,17 +305,14 @@ void BigPictureScreen::draw(UiContext& ctx)
         else
             m_index = clicked;
     } else if (!popup && selected && pressed({ImGuiKey_GamepadFaceDown, ImGuiKey_Enter, ImGuiKey_KeypadEnter})) {
-        if (selected->system->external() || ctx.library.hasCore(*selected))
-            ctx.play(*selected, {});
-        else
-            ctx.notify("L'émulateur de cette console est manquant");
+        ctx.play(*selected, {}); // (l'émulateur manquant se télécharge d'abord, voir App)
     } else if (!popup && selected && !resumeFile.empty() && pressed({ImGuiKey_GamepadFaceLeft, ImGuiKey_R})) {
         ctx.play(*selected, resumeFile);
     } else if (!popup && selected && pressed({ImGuiKey_GamepadFaceUp, ImGuiKey_F})) {
         GameRecord& r = ctx.userData.record(selected->path);
         r.favorite = !r.favorite;
         ctx.userData.save();
-    } else if (!popup && pressed({ImGuiKey_GamepadFaceRight, ImGuiKey_GamepadStart, ImGuiKey_Escape})) {
+    } else if (!popup && pressed({ImGuiKey_GamepadFaceRight, ImGuiKey_GamepadStart, ImGuiKey_Escape, ImGuiKey_AppBack})) {
         ctx.setBigPicture(false);
     }
 

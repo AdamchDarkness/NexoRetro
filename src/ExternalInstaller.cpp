@@ -1,12 +1,10 @@
 #include "ExternalInstaller.hpp"
 
+#include "Archive.hpp"
+#include "CoreUpdater.hpp"
 #include "Utf8.hpp"
 
 #include <SDL3/SDL.h>
-
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
 
 #include <algorithm>
 #include <cctype>
@@ -48,24 +46,6 @@ std::vector<std::string> jsonValues(const std::string& json, const std::string& 
         values.push_back(json.substr(start + 1, end - start - 1));
     }
     return values;
-}
-
-// Lance un programme sans fenêtre et attend qu'il se termine. Renvoie son
-// code de sortie (-1 s'il n'a pas démarré).
-int runHidden(const std::wstring& commandLine)
-{
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::wstring line = commandLine; // CreateProcessW peut modifier la chaîne
-    if (!CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
-        return -1;
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    DWORD code = 1;
-    GetExitCodeProcess(pi.hProcess, &code);
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    return static_cast<int>(code);
 }
 
 } // namespace
@@ -120,8 +100,8 @@ bool ExternalInstaller::startCore(const std::string& coreFile, const fs::path& c
         return false;
     // Le "buildbot" de libretro publie chaque core compilé, dans un .zip.
     m_thread = std::thread([this, coreFile, coresDir] {
-        runZip("core:" + coreFile, "https://buildbot.libretro.com/nightly/windows/x86_64/latest/" + coreFile + ".zip",
-               coresDir, coreFile);
+        const std::string serverFile = buildbot::serverFile(coreFile);
+        runZip("core:" + coreFile, buildbot::kCoresUrl + serverFile + ".zip", coresDir, coreFile, serverFile);
     });
     return true;
 }
@@ -147,7 +127,8 @@ bool ExternalInstaller::startSystemFiles(const std::string& name, const fs::path
     return true;
 }
 
-void ExternalInstaller::runZip(const std::string& id, const std::string& url, const fs::path& dest, const fs::path& check)
+void ExternalInstaller::runZip(const std::string& id, const std::string& url, const fs::path& dest, const fs::path& check,
+                               const fs::path& extracted)
 {
     Result result;
     result.systemId = id;
@@ -169,12 +150,13 @@ void ExternalInstaller::runZip(const std::string& id, const std::string& url, co
         std::ofstream out(zip, std::ios::binary);
         out.write(archive.body.data(), static_cast<std::streamsize>(archive.body.size()));
     }
-    wchar_t system[MAX_PATH];
-    GetSystemDirectoryW(system, MAX_PATH);
-    const int code = runHidden(L"\"" + std::wstring(system) + L"\\tar.exe\" -xf \"" + zip.wstring() + L"\" -C \"" +
-                               dest.wstring() + L"\"");
+    const bool unpacked = archive::extract(zip, dest);
     fs::remove(zip, ec);
-    if (code != 0 || !fs::exists(dest / check, ec)) {
+    // Le fichier du serveur porte un autre nom (Android) : on lui donne le
+    // nom attendu (remplace l'ancienne version).
+    if (unpacked && !extracted.empty() && extracted != check && fs::exists(dest / extracted, ec))
+        fs::rename(dest / extracted, dest / check, ec);
+    if (!unpacked || !fs::exists(dest / check, ec)) {
         result.message = "décompression impossible";
         return finish(result);
     }
@@ -291,13 +273,10 @@ void ExternalInstaller::run(const Source& source)
     }
     fs::remove_all(appDir, ec);
     fs::create_directories(appDir, ec);
-    wchar_t system[MAX_PATH];
-    GetSystemDirectoryW(system, MAX_PATH);
-    const int code = runHidden(L"\"" + std::wstring(system) + L"\\tar.exe\" -xf \"" + archiveFile.wstring() + L"\" -C \"" +
-                               appDir.wstring() + L"\"");
+    const bool unpacked = archive::extract(archiveFile, appDir);
     fs::remove(archiveFile, ec);
-    if (code != 0) {
-        result.message = "Décompression impossible (tar : code " + std::to_string(code) + ")";
+    if (!unpacked) {
+        result.message = "Décompression impossible";
         return finish(result);
     }
 

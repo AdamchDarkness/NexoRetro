@@ -1,4 +1,5 @@
 #include "LibraryTools.hpp"
+#include "Compat.hpp"
 
 #include "Hash.hpp"
 #include "Lang.hpp"

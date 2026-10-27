@@ -52,6 +52,48 @@ et le relance). Les cores, eux, se mettent à jour tout seuls (voir plus bas).
 **Désinstaller** : Paramètres de Windows → Applications → Nexo Retro. Les données restent dans
 `%APPDATA%\NexoRetro` (supprimez ce dossier vous-même si vous n'en voulez plus).
 
+## Android (téléphones, tablettes, TV)
+
+Deux APK sont publiés sur la même page Releases (Android 8.0 ou plus récent, ARM ou x86 64 bits) :
+
+| Fichier | Pour |
+| --- | --- |
+| `NexoRetro-<version>-mobile.apk` | **Téléphones et tablettes**, avec une manette dessinée sur l'écran tactile. |
+| `NexoRetro-<version>-tv.apk` | **Android TV / Google TV** : apparaît dans le lanceur de la télé et démarre en mode Big Picture, à la télécommande ou à la manette. |
+
+Installez l'APK (autorisez « installer des applis inconnues » pour votre navigateur ou votre
+gestionnaire de fichiers), puis suivez l'assistant du premier lancement :
+
+- **Vos jeux** : autorisez Nexo Retro à lire vos fichiers, puis copiez vos jeux dans le dossier
+  `NexoRetro/roms` de l'appareil (câble USB ou gestionnaire de fichiers). Un dossier `ROMs` à la
+  racine du stockage est lu aussi. Les BIOS vont dans `NexoRetro/bios`, comme sous Windows.
+- **Émulateurs** : la première fois que vous lancez un jeu d'une console, son cœur se télécharge
+  tout seul (version Android du buildbot libretro), puis le jeu démarre.
+- **Manette tactile** : croix, A B X Y, L / R, L2 / R2, Select et Start, plusieurs doigts à la
+  fois ; le bouton rond en haut ouvre le menu (la touche Retour d'Android aussi). Elle se cache
+  dès qu'une vraie manette est branchée (Paramètres → Manettes : Automatique / Toujours / Jamais,
+  et sa transparence).
+- Les téléphones démarrent en mode Big Picture (grandes jaquettes, fait pour le tactile et la
+  manette) ; les tablettes dans l'interface complète.
+
+Pas (encore) disponible sur Android : les émulateurs externes (PS3, Switch... : Windows
+seulement), les vidéos MP4 des speedruns, la Corbeille (supprimez les fichiers avec le
+gestionnaire de fichiers) et la mise à jour de l'appli en un clic (la page de la version s'ouvre à
+la place). Le jeu en ligne, le relais chiffré, les sauvegardes, emplacements, retour en arrière,
+speedrun et jaquettes fonctionnent comme sous Windows.
+
+**Compiler les APK** : SDK Android avec le NDK 28.2 et CMake 3.31, JDK 17 ou plus récent. Le
+dossier `android/` est un projet Gradle qui compile les mêmes sources C++ (SDL3 et Dear ImGui en
+OpenGL ES 3) :
+
+```bash
+cd android && ./gradlew assembleMobileRelease assembleTvRelease
+```
+
+Sans les variables d'environnement `NEXO_KEYSTORE`, `NEXO_KEYSTORE_PASSWORD`, `NEXO_KEY_ALIAS` et
+`NEXO_KEY_PASSWORD`, les APK sont signés avec la clé de débogage. Le workflow de publication
+compile les deux APK et les joint à la version GitHub.
+
 ## Comment ça marche
 
 Les émulateurs eux-mêmes sont des **cores libretro** : des DLL (`snes9x_libretro.dll`,

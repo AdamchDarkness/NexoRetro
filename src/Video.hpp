@@ -103,6 +103,8 @@ private:
     unsigned m_fboHeight = 0;
     int m_uvScaleLocation = -1;
     int m_flipYLocation = -1;
+    int m_swapRBLocation = -1;          // OpenGL ES : échange rouge et bleu (XRGB8888)
+    std::vector<uint16_t> m_converted;  // OpenGL ES : image 0RGB1555 convertie en RGB565
 
     retro_hw_render_callback m_hw{};
     bool m_hwRender = false;

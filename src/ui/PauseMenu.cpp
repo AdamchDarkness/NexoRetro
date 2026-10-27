@@ -48,12 +48,22 @@ PauseAction PauseMenu::draw(const std::string& gameTitle, const std::string& sys
     item("Reprendre", PauseAction::Resume, ButtonStyle::Primary, draw::Icon::Play);
     if (m_justOpened)
         ImGui::SetItemDefaultFocus();
+#ifdef __ANDROID__
+    // (Pas de clavier sur un téléphone : pas de raccourcis F2..., et l'appli
+    // est toujours en plein écran.)
+    item("Sauvegarder l'état", PauseAction::SaveState, ButtonStyle::Soft, draw::Icon::None);
+    item("Charger l'état", PauseAction::LoadState, ButtonStyle::Soft, draw::Icon::None);
+    item("Emplacements de sauvegarde", PauseAction::Slots, ButtonStyle::Soft, draw::Icon::Grid);
+    item("Redémarrer", PauseAction::Reset, ButtonStyle::Soft, draw::Icon::Refresh);
+    item("Capture d'écran", PauseAction::Screenshot, ButtonStyle::Soft, draw::Icon::Image);
+#else
     item("Sauvegarder l'état (F2)", PauseAction::SaveState, ButtonStyle::Soft, draw::Icon::None);
     item("Charger l'état (F4)", PauseAction::LoadState, ButtonStyle::Soft, draw::Icon::None);
     item("Emplacements de sauvegarde", PauseAction::Slots, ButtonStyle::Soft, draw::Icon::Grid);
     item("Redémarrer (F8)", PauseAction::Reset, ButtonStyle::Soft, draw::Icon::Refresh);
     item("Capture d'écran (F12)", PauseAction::Screenshot, ButtonStyle::Soft, draw::Icon::Image);
     item("Plein écran (F11)", PauseAction::Fullscreen, ButtonStyle::Soft, draw::Icon::None);
+#endif
     item("Commandes de la console", PauseAction::Controls, ButtonStyle::Soft, draw::Icon::Gamepad);
     if (online.online) {
         // En ligne : le micro, et le ping à l'écran.
