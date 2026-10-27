@@ -16,10 +16,10 @@
 #include <string>
 #include <thread>
 
-// L'application Discord de l'émulateur (créée sur discord.com/developers).
-// Vide tant qu'elle n'a pas été créée : il faut alors en donner une dans
-// Paramètres > Jeu en ligne.
-inline constexpr const char* kDiscordAppId = "";
+// L'application Discord de l'émulateur "Nexo Retro" (créée sur
+// discord.com/developers). On peut en donner une autre dans Paramètres >
+// Jeu en ligne.
+inline constexpr const char* kDiscordAppId = "1564465604105084950";
 
 class DiscordPresence {
 public:
