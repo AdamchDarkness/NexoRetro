@@ -425,9 +425,13 @@ void LibraryScreen::draw(UiContext& ctx)
     drawFiltersPopup(genres, publishers, decades, ImVec2(filtersMax.x, filtersMax.y + px(8.0f)));
     ImGui::SetCursorPos(ImVec2(afterTitle.x, afterTitle.y + px(14.0f)));
 
-    // --- Puces de catégorie, sur une seule ligne qui défile (molette).
+    // --- Puces de catégorie, sur une seule ligne qui défile (molette, ou en
+    // la faisant glisser à la souris ou au doigt).
     {
         const float chipsH = px(42.0f);
+        const ImGuiIO& io = ImGui::GetIO();
+        // Au-delà de quelques pixels, le geste fait défiler : ce n'est plus un clic sur une puce.
+        const bool dragged = io.MouseDragMaxDistanceSqr[0] > px(8.0f) * px(8.0f);
         ImGui::BeginChild("##chips", ImVec2(width, chipsH), ImGuiChildFlags_None,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         for (size_t i = 0; i < categories.size(); ++i) {
@@ -439,13 +443,18 @@ void LibraryScreen::draw(UiContext& ctx)
             if (i > 0)
                 ImGui::SameLine(0.0f, px(8.0f));
             ImGui::PushID(c.id.c_str());
-            if (chip("##chip", c.label.c_str(), count.c_str(), c.dot, m_filter == c.id))
+            if (chip("##chip", c.label.c_str(), count.c_str(), c.dot, m_filter == c.id) && !dragged)
                 m_filter = c.id;
             ImGui::PopID();
         }
+        // Glisser (bouton gauche enfoncé, parti de la ligne des puces) : elle suit la souris.
+        const ImVec2 rowMin = ImGui::GetWindowPos();
+        const ImVec2 start = io.MouseClickedPos[0];
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && dragged && start.x >= rowMin.x && start.x <= rowMin.x + width &&
+            start.y >= rowMin.y && start.y <= rowMin.y + chipsH)
+            ImGui::SetScrollX(ImGui::GetScrollX() - io.MouseDelta.x);
         // La molette (verticale ou horizontale) fait défiler les puces.
         if (ImGui::IsWindowHovered()) {
-            const ImGuiIO& io = ImGui::GetIO();
             const float wheel = io.MouseWheel != 0.0f ? io.MouseWheel : io.MouseWheelH;
             if (wheel != 0.0f)
                 ImGui::SetScrollX(ImGui::GetScrollX() - wheel * px(90.0f));
