@@ -1325,3 +1325,4 @@ GitHub a répondu {n} => GitHub の応答: {}
 Réponse de GitHub illisible => GitHub の応答を読み取れません
 téléchargement indisponible => ダウンロードできません
 pas de réponse (connexion Internet ?) => 応答なし（インターネット接続は？）
+Toujours rien ? Sur les deux PC, le pare-feu de Windows doit autoriser Nexo Retro, réseaux publics compris (Sécurité Windows > Pare-feu > Autoriser une application). => それでもだめな場合：両方の PC で、Windows ファイアウォールが Nexo Retro を許可している必要があります（パブリック ネットワークも含む。Windows セキュリティ > ファイアウォール > アプリを許可）。

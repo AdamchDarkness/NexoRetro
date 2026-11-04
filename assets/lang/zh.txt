@@ -1325,3 +1325,4 @@ GitHub a répondu {n} => GitHub 返回 {}
 Réponse de GitHub illisible => 无法读取 GitHub 的响应
 téléchargement indisponible => 无法下载
 pas de réponse (connexion Internet ?) => 无响应（网络连接？）
+Toujours rien ? Sur les deux PC, le pare-feu de Windows doit autoriser Nexo Retro, réseaux publics compris (Sécurité Windows > Pare-feu > Autoriser une application). => 还是不行？两台电脑上的 Windows 防火墙都必须允许 Nexo Retro，包括公用网络（Windows 安全中心 > 防火墙 > 允许应用）。

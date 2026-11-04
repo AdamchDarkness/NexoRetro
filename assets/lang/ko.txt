@@ -1325,3 +1325,4 @@ GitHub a répondu {n} => GitHub 응답: {}
 Réponse de GitHub illisible => GitHub 응답을 읽을 수 없습니다
 téléchargement indisponible => 다운로드할 수 없습니다
 pas de réponse (connexion Internet ?) => 응답 없음 (인터넷 연결?)
+Toujours rien ? Sur les deux PC, le pare-feu de Windows doit autoriser Nexo Retro, réseaux publics compris (Sécurité Windows > Pare-feu > Autoriser une application). => 그래도 안 되나요? 두 PC 모두 Windows 방화벽에서 Nexo Retro를 허용해야 합니다(공용 네트워크 포함, Windows 보안 > 방화벽 > 앱 허용).

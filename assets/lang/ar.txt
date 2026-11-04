@@ -1326,3 +1326,4 @@ GitHub a répondu {n} => ردّ GitHub بـ {}
 Réponse de GitHub illisible => ردّ GitHub غير مقروء
 téléchargement indisponible => التنزيل غير متاح
 pas de réponse (connexion Internet ?) => لا يوجد رد (اتصال الإنترنت؟)
+Toujours rien ? Sur les deux PC, le pare-feu de Windows doit autoriser Nexo Retro, réseaux publics compris (Sécurité Windows > Pare-feu > Autoriser une application). => لا يزال لا شيء؟ على الجهازين، يجب أن يسمح جدار حماية Windows لـ Nexo Retro، بما في ذلك الشبكات العامة (أمان Windows > جدار الحماية > السماح لتطبيق).

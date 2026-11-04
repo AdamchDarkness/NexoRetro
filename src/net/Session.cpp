@@ -31,6 +31,7 @@ constexpr Uint64 kTimeoutMs = 10000;       // sans nouvelles pendant 10 s : déc
 constexpr Uint64 kResendMs = 400;          // renvoi d'un message fiable sans accusé de réception
 constexpr Uint64 kAnswerAfterMs = 5000;    // l'ami propose un code de réponse au bout de 5 s
 constexpr Uint64 kPreparationMaxMs = 4000; // on n'attend pas UPnP/STUN plus longtemps
+constexpr int kPunchSpread = 16;           // code de réponse : ports voisins essayés (16 avant, 48 après)
 
 uint32_t read32(const uint8_t* p)
 {
@@ -515,9 +516,24 @@ bool Session::acceptAnswer(const std::string& code)
         event(Event::Type::Error, "Ce code de réponse ne correspond pas à ce salon");
         return false;
     }
-    for (const Address& a : answer->candidates)
-        if (std::find(m_targets.begin(), m_targets.end(), a) == m_targets.end())
+    // Certaines box (et beaucoup de réseaux mobiles) donnent un autre port
+    // pour chaque destination : celui vu par STUN n'est alors pas celui que
+    // l'ami utilise vers nous, mais souvent un port voisin. On perce donc
+    // aussi vers les ports proches de son adresse publique.
+    auto add = [&](Address a) {
+        if (a.valid() && std::find(m_targets.begin(), m_targets.end(), a) == m_targets.end())
             m_targets.push_back(a);
+    };
+    for (const Address& a : answer->candidates) {
+        add(a);
+        if (isPrivate(a.ip))
+            continue;
+        for (int delta = -kPunchSpread; delta <= kPunchSpread * 3; ++delta) {
+            const int port = a.port + delta;
+            if (delta != 0 && port > 1024 && port <= 65535)
+                add({a.ip, static_cast<uint16_t>(port)});
+        }
+    }
     detail("Code de réponse reçu : perforation vers " + std::to_string(answer->candidates.size()) + " adresse(s)");
     return true;
 }
@@ -964,7 +980,8 @@ void Session::handleHello(const Address& from, const std::string& payload)
     peer.status = m_game ? GameStatus::Checking : GameStatus::Unknown;
     peer.link.addr = from;
     peer.link.lastReceived = SDL_GetTicks();
-    std::erase(m_targets, from); // plus besoin de "percer" vers lui
+    // Plus besoin de "percer" vers lui (ni vers les ports voisins essayés).
+    std::erase_if(m_targets, [&](const Address& a) { return a.ip == from.ip; });
 
     send(from, Packet::Welcome, ByteWriter().u8(id).str(m_salonName).data());
     event(Event::Type::MemberJoined, peer.name + " a rejoint le salon");

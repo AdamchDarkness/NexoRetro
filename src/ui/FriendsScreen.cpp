@@ -114,6 +114,12 @@ std::string lower(std::string s)
 
 } // namespace
 
+// Le pare-feu de Windows bloque les parties si sa question a été refusée au
+// premier lancement (ou acceptée pour les seuls réseaux privés).
+constexpr const char* kFirewallHint =
+    "Toujours rien ? Sur les deux PC, le pare-feu de Windows doit autoriser Nexo Retro, réseaux publics compris "
+    "(Sécurité Windows > Pare-feu > Autoriser une application).";
+
 // --- Créer ou rejoindre -------------------------------------------------------------
 
 void FriendsScreen::drawStart(UiContext& ctx, float inner)
@@ -315,6 +321,8 @@ void FriendsScreen::drawSalon(UiContext& ctx, float width, float height)
                         13.0f, Weight::Medium, theme::Muted, inner);
             space(4.0f);
             codeBox("answer", session.answerCode(), inner);
+            space(2.0f);
+            textWrapped(kFirewallHint, 12.0f, Weight::Medium, theme::Muted, inner);
         }
         space(6.0f);
         details(session, inner);
@@ -343,6 +351,7 @@ void FriendsScreen::drawSalon(UiContext& ctx, float width, float height)
             session.acceptAnswer(m_answer);
             m_answer[0] = '\0';
         }
+        textWrapped(kFirewallHint, 12.0f, Weight::Medium, theme::Muted, inner);
         break;
     case State::InSalon:
         drawMembers(ctx, inner);

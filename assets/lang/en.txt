@@ -1331,3 +1331,4 @@ GitHub a répondu {n} => GitHub answered {}
 Réponse de GitHub illisible => Unreadable answer from GitHub
 téléchargement indisponible => download unavailable
 pas de réponse (connexion Internet ?) => no answer (Internet connection?)
+Toujours rien ? Sur les deux PC, le pare-feu de Windows doit autoriser Nexo Retro, réseaux publics compris (Sécurité Windows > Pare-feu > Autoriser une application). => Still nothing? On both PCs, Windows Firewall must allow Nexo Retro, public networks included (Windows Security > Firewall > Allow an app).
