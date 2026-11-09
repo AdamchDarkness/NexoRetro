@@ -8,7 +8,7 @@
 namespace ui {
 
 enum class PauseAction { None, Resume, SaveState, LoadState, Reset, Screenshot, Fullscreen, Controls, Library, Quit,
-                         ToggleMic, ToggleNetStats, Slots };
+                         ToggleMic, ToggleNetStats, Slots, Achievements };
 
 // Ce que le menu montre en plus pendant une partie en ligne.
 struct OnlineMenu {
@@ -16,6 +16,7 @@ struct OnlineMenu {
     bool voice = false;     // chat vocal activé (micro ouvert ou appuyer pour parler)
     bool micMuted = false;
     bool netStats = false;  // ping et pertes affichés à l'écran
+    bool achievements = false; // le jeu a des succès RetroAchievements (entrée "Succès")
 };
 
 // Une ligne de l'écran "Commandes" : une action de la console émulée.

@@ -87,6 +87,13 @@ struct Settings {
     // secret : il dit juste à Discord quel nom afficher). Vide = celui
     // fourni avec l'émulateur (kDiscordAppId, Discord.hpp).
     std::string discordAppId;
+    // Succès RetroAchievements (voir Achievements.hpp). On garde le nom et le
+    // "jeton" de connexion donné par le site, JAMAIS le mot de passe.
+    std::string raUser;
+    std::string raToken;
+    bool raEnabled = true;       // succès actifs quand un compte est connecté
+    bool raHardcore = false;     // mode Hardcore : sans sauvegarde d'état, retour en arrière ni triche
+    bool raNotifications = true; // bandeau "Succès débloqué" pendant le jeu
     // Émulateurs externes (Switch, Xbox, PS3...) : console -> programme, et
     // console -> arguments ({rom} = le jeu). Vide = valeurs par défaut.
     std::map<std::string, std::string> externalPaths;

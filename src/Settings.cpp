@@ -82,6 +82,11 @@ void Settings::load(const std::filesystem::path& file)
         else if (key == "voiceSensitivity") voiceSensitivity = std::clamp(number, 0, 100);
         else if (key == "discordPresence") discordPresence = number != 0;
         else if (key == "discordAppId") discordAppId = value;
+        else if (key == "raUser") raUser = value;
+        else if (key == "raToken") raToken = value;
+        else if (key == "raEnabled") raEnabled = number != 0;
+        else if (key == "raHardcore") raHardcore = number != 0;
+        else if (key == "raNotifications") raNotifications = number != 0;
         else if (key.rfind("external.", 0) == 0) externalPaths[key.substr(9)] = value;
         else if (key.rfind("externalArgs.", 0) == 0) externalArgs[key.substr(13)] = value;
     }
@@ -151,7 +156,12 @@ void Settings::save(const std::filesystem::path& file) const
         << "voiceVolume=" << voiceVolume << '\n'
         << "voiceSensitivity=" << voiceSensitivity << '\n'
         << "discordPresence=" << discordPresence << '\n'
-        << "discordAppId=" << discordAppId << '\n';
+        << "discordAppId=" << discordAppId << '\n'
+        << "raUser=" << raUser << '\n'
+        << "raToken=" << raToken << '\n'
+        << "raEnabled=" << raEnabled << '\n'
+        << "raHardcore=" << raHardcore << '\n'
+        << "raNotifications=" << raNotifications << '\n';
     for (const auto& [id, path] : externalPaths)
         out << "external." << id << '=' << path << '\n';
     for (const auto& [id, args] : externalArgs)

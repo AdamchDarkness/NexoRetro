@@ -519,6 +519,72 @@ void SettingsScreen::drawDiscord(UiContext& ctx, float width, bool& changed)
                           });
 }
 
+// --- Succès (RetroAchievements) ---------------------------------------------------------
+// Un compte gratuit sur retroachievements.org. On n'enregistre jamais le mot
+// de passe : le site donne un jeton de connexion, gardé à sa place.
+
+void SettingsScreen::drawAchievements(UiContext& ctx, float width, bool& changed)
+{
+    Settings& s = ctx.settings;
+    Achievements& ra = ctx.achievements;
+    using Login = Achievements::Login;
+    space(4.0f);
+    overline("COMPTE");
+    if (ra.login() == Login::LoggedIn) {
+        const std::string who = ra.userName();
+        const std::string points = std::to_string(ra.score()) + (ra.hardcore() ? " points (Hardcore)" : " points");
+        settingRow(("Connecté : " + who).c_str(), points.c_str(), width, px(170.0f), [&] {
+            if (!button("Se déconnecter", {.style = ButtonStyle::Outline, .height = 40.0f, .width = 170.0f}))
+                return false;
+            ra.logout();
+            s.raUser.clear();
+            s.raToken.clear();
+            changed = true;
+            return true;
+        });
+    } else {
+        textWrapped("Créez un compte gratuit sur retroachievements.org, puis connectez-vous. Votre mot de passe n'est pas "
+                    "enregistré : seul un jeton de connexion est gardé sur cet appareil.",
+                    13.0f, Weight::Medium, theme::Muted, width);
+        space(4.0f);
+        if (m_raUser[0] == '\0' && !s.raUser.empty())
+            std::snprintf(m_raUser, sizeof(m_raUser), "%s", s.raUser.c_str());
+        const bool busy = ra.login() == Login::LoggingIn;
+        textField("##raUser", m_raUser, sizeof(m_raUser), "Nom d'utilisateur", 320.0f, busy);
+        textField("##raPassword", m_raPassword, sizeof(m_raPassword), "Mot de passe", 320.0f, busy, true);
+        const bool enter = ImGui::IsItemDeactivated() && ImGui::IsKeyPressed(ImGuiKey_Enter);
+        const bool ready = m_raUser[0] != '\0' && m_raPassword[0] != '\0' && !busy;
+        const bool clicked = button(busy ? "Connexion…" : "Se connecter",
+                                    {.style = ButtonStyle::Primary, .height = 44.0f, .width = 200.0f, .disabled = !ready});
+        if ((clicked || enter) && ready) {
+            ra.loginWithPassword(m_raUser, m_raPassword);
+            std::fill(std::begin(m_raPassword), std::end(m_raPassword), '\0'); // le mot de passe ne reste pas en mémoire
+        }
+        sameLine();
+        if (button("Créer un compte", {.style = ButtonStyle::Ghost, .height = 44.0f}))
+            SDL_OpenURL("https://retroachievements.org/createaccount.php");
+        if (ra.login() == Login::Failed && !ra.loginError().empty())
+            textWrapped(ra.loginError(), 13.0f, Weight::SemiBold, theme::Danger, width);
+    }
+
+    space(10.0f);
+    overline("PENDANT LE JEU");
+    if (settingRow("Succès activés", "Les jeux reconnus par RetroAchievements débloquent des succès", width, px(46.0f),
+                   [&] { return toggle("##raEnabled", &s.raEnabled); })) {
+        ra.setEnabled(s.raEnabled);
+        if (s.raEnabled && ra.login() == Login::LoggedOut)
+            ra.loginWithToken(s.raUser, s.raToken);
+        changed = true;
+    }
+    if (settingRow("Mode Hardcore", "Pour le classement : sans sauvegarde d'état, retour en arrière ni code de triche",
+                   width, px(46.0f), [&] { return toggle("##raHardcore", &s.raHardcore); })) {
+        ra.setHardcore(s.raHardcore);
+        changed = true;
+    }
+    changed |= settingRow("Bandeau « Succès débloqué »", "En haut de l'écran, avec l'image du succès", width, px(46.0f),
+                          [&] { return toggle("##raNotify", &s.raNotifications); });
+}
+
 // --- Apparence ---------------------------------------------------------------------
 
 namespace {
@@ -1179,7 +1245,8 @@ void SettingsScreen::draw(UiContext& ctx)
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float navW = px(260.0f);
     const std::vector<std::string> pads = ctx.input.gamepadNames();
-    if (ctx.nav.settingsTab >= 0) {
+    const bool jumped = ctx.nav.settingsTab >= 0; // onglet choisi depuis un autre écran : le montrer
+    if (jumped) {
         m_tab = ctx.nav.settingsTab;
         ctx.nav.settingsTab = -1;
     }
@@ -1201,11 +1268,11 @@ void SettingsScreen::draw(UiContext& ctx)
         const char* label;
         int id;
     };
-    static const Tab tabs[] = {{"Affichage", 0},           {"Apparence", 10},           {"Son", 1},
-                               {"Manettes", 2},            {"Sauvegardes", 3},          {"Dossiers", 4},
-                               {"Jeu en ligne", 5},        {"Jaquettes et infos", 6},   {"Options des cores", 7},
-                               {"Émulateurs externes", 8}, {"Émulateurs (cores)", 9}, {"Mises à jour", 11},
-                               {"Contrôle parental", 12}};
+    static const Tab tabs[] = {{"Affichage", 0},          {"Apparence", 10},          {"Son", 1},
+                               {"Manettes", 2},           {"Sauvegardes", 3},         {"Dossiers", 4},
+                               {"Jeu en ligne", 5},       {"Succès", 13},             {"Jaquettes et infos", 6},
+                               {"Options des cores", 7},  {"Émulateurs externes", 8}, {"Émulateurs (cores)", 9},
+                               {"Mises à jour", 11},      {"Contrôle parental", 12}};
 
     // Les cores à installer l'un après l'autre (page "Émulateurs") : le
     // suivant part dès que le précédent est fini.
@@ -1213,6 +1280,9 @@ void SettingsScreen::draw(UiContext& ctx)
         ctx.installer.startCore(m_coreQueue.front(), ctx.library.coresDir());
         m_coreQueue.pop_front();
     }
+    // La liste défile (molette, doigt) si la fenêtre est trop basse pour tous les onglets.
+    ImGui::BeginChild("##tabs", ImVec2(navW, std::max(px(100.0f), ImGui::GetContentRegionAvail().y)), ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_NoScrollbar);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     for (int i = 0; i < static_cast<int>(std::size(tabs)); ++i) {
         ImGui::PushID(i);
@@ -1222,6 +1292,8 @@ void SettingsScreen::draw(UiContext& ctx)
         ImGui::PopID();
         const ImVec2 min = ImGui::GetItemRectMin();
         const bool selected = m_tab == tabs[i].id;
+        if (selected && jumped)
+            ImGui::SetScrollHereY(0.5f);
         if (selected || hovered)
             draw::rect(dl, min, ImVec2(min.x + navW, min.y + px(46.0f)), selected ? theme::Surface : theme::withAlpha(theme::Surface, 130),
                        px(14.0f));
@@ -1235,6 +1307,7 @@ void SettingsScreen::draw(UiContext& ctx)
         if (i + 1 < static_cast<int>(std::size(tabs)))
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
     }
+    ImGui::EndChild();
     ImGui::EndGroup();
     if (m_tab != previousTab) {
         ctx.input.cancelCapture();
@@ -1569,6 +1642,10 @@ void SettingsScreen::draw(UiContext& ctx)
     case 12:
         header("Contrôle parental", "Un temps de jeu par jour, protégé par un code.");
         drawParental(ctx, w, changed);
+        break;
+    case 13:
+        header("Succès", "Des défis pour vos jeux rétro, gratuits et créés par la communauté de RetroAchievements.org.");
+        drawAchievements(ctx, w, changed);
         break;
     default:
         break;

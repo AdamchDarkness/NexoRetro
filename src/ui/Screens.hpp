@@ -12,6 +12,7 @@
 #include "../Bios.hpp"
 #include "../Cheats.hpp"
 #include "../Core.hpp"
+#include "../Achievements.hpp"
 #include "../AppUpdater.hpp"
 #include "../CoreUpdater.hpp"
 #include "../Discord.hpp"
@@ -27,6 +28,7 @@
 #include "../Settings.hpp"
 #include "../UserData.hpp"
 #include "../VoiceChat.hpp"
+#include "../net/ConnectionTest.hpp"
 #include "../net/Netplay.hpp"
 #include "../net/Session.hpp"
 #include "../scrape/Scraper.hpp"
@@ -113,6 +115,7 @@ struct UiContext {
     DiscordPresence& discord;
     PortableCopy& portableCopy;
     speedrun::Speedrun& speedrun;
+    Achievements& achievements;
     std::filesystem::path dataDir;
 
     std::function<void(const Game&, const std::filesystem::path& state)> play;
@@ -299,7 +302,9 @@ private:
     void drawGamePicker(UiContext& ctx);
     void drawNight(UiContext& ctx, float width, float height); // soirée jeu (hôte)
     void drawChat(UiContext& ctx, float width, float height);
-    void drawHelp(float width);
+    void drawHelp(UiContext& ctx, float width);
+    void drawConnectionTest(UiContext& ctx, float width, float height);
+    net::ConnectionTest m_test; // "Tester ma connexion"
     char m_salonName[48] = "";
     char m_hostPassword[48] = "";
     char m_code[192] = "";         // code du salon à rejoindre (un code par relais est plus long)
@@ -324,6 +329,7 @@ private:
     void drawControls(UiContext& ctx, float width); // réassignation des touches
     void drawVoice(UiContext& ctx, float width, bool& changed);
     void drawDiscord(UiContext& ctx, float width, bool& changed);
+    void drawAchievements(UiContext& ctx, float width, bool& changed); // compte RetroAchievements
     void drawCoreOptions(UiContext& ctx, float width);
     void drawExternal(UiContext& ctx, float width); // émulateurs externes
     void drawCores(UiContext& ctx, float width);    // cores libretro : installer, mettre à jour
@@ -347,6 +353,8 @@ private:
     std::map<std::string, std::string> m_optionValues; // contenu de core-options.txt
     int m_device = -1; // -1 = clavier, sinon indice de la manette
     char m_nickname[48] = "";
+    char m_raUser[64] = "";
+    char m_raPassword[128] = ""; // (effacé dès l'envoi : jamais enregistré)
     bool m_waitingVoiceKey = false; // "Touche pour parler" : en attente d'une touche
     char m_discordId[32] = "";
 };

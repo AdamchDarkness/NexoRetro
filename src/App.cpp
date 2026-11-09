@@ -72,7 +72,7 @@ App::App(AppOptions options)
       // Le contexte des écrans : des références vers nos membres, et des
       // lambdas qui appellent nos méthodes. [C++] [this] capture l'objet App.
       m_context{m_library, m_userData, m_settings, m_bios, m_covers, m_input, m_nav, m_session, m_relayServer, m_online, m_scraper, m_installer,
-                m_voice, m_coreUpdater, m_discord, m_portableCopy, m_speedrun, m_options.dataDir,
+                m_voice, m_coreUpdater, m_discord, m_portableCopy, m_speedrun, m_achievements, m_options.dataDir,
                 [this](const Game& game, const fs::path& state) {
                     m_settings.rollParentalDay();
                     if (m_settings.parentalSecondsLeft() == 0) {
@@ -310,6 +310,12 @@ bool App::init()
     m_input.openConnected();
     m_session.setNickname(m_settings.nickname);
     m_bios.refresh();
+    // Succès RetroAchievements : reconnexion avec le jeton enregistré.
+    m_achievements.setBadgeDir(dir("achievements"));
+    m_achievements.setEnabled(m_settings.raEnabled);
+    m_achievements.setHardcore(m_settings.raHardcore);
+    if (m_settings.raEnabled)
+        m_achievements.loginWithToken(m_settings.raUser, m_settings.raToken);
     // Les cores installés : une nouvelle version ? (au plus une fois par jour,
     // en arrière-plan ; pas pendant les tests automatiques, sauf EMU_TEST_CORE_UPDATE).
     const bool automatedTest = m_options.maxFrames > 0 || !m_options.netTestHost.empty() || !m_options.netTestJoin.empty();
@@ -577,7 +583,7 @@ int App::run()
                 return m_gameLoops >= start && m_gameLoops < start + length;
             };
             ++m_gameLoops;
-            const bool wantRewind = solo && m_settings.rewind &&
+            const bool wantRewind = solo && m_settings.rewind && !m_achievements.blocksAssists() &&
                                     (keys[SDL_SCANCODE_BACKSPACE] || testHeld("EMU_TEST_REWIND") ||
                                      m_input.padChordHeld(SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
             const bool wantFast = solo && (keys[SDL_SCANCODE_TAB] || testHeld("EMU_TEST_FAST") ||
@@ -625,6 +631,7 @@ int App::run()
                         if (const char* comma = SDL_strchr(slow, ','))
                             SDL_Delay(static_cast<Uint32>(SDL_atoi(comma + 1)));
                     m_core->runFrame();
+                    m_achievements.doFrame();
                     // Reprise d'une partie : l'état est rechargé après quelques images
                     // (le temps que le core ait vraiment démarré sa machine).
                     if (!m_pendingState.empty() && ++m_framesSinceLaunch >= 3)
@@ -837,8 +844,10 @@ void App::handleEvent(const SDL_Event& received)
                     saveState();
                 else if (event.key.key == SDLK_F4)
                     loadState();
-                else
+                else {
                     m_core->reset();
+                    m_achievements.reset();
+                }
                 break;
             case SDLK_F12: takeScreenshot(); break;
             case SDLK_F5:
@@ -895,11 +904,14 @@ void App::drawUi()
             drawControlsScreen();
         } else if (m_menuOpen && m_slotsOpen) {
             drawSlotsScreen();
+        } else if (m_menuOpen && m_achievementsOpen) {
+            if (!ui::drawAchievementList(m_achievements, m_covers, m_gameTitle))
+                m_achievementsOpen = false;
         } else if (m_menuOpen)
         {
             bool volumeChanged = false;
                 const ui::OnlineMenu online{m_netplay.active() || m_link.active(), m_settings.voiceMode != 0,
-                                        m_voice.selfMuted(), m_settings.netStats};
+                                        m_voice.selfMuted(), m_settings.netStats, m_achievements.active()};
             handlePauseAction(m_pauseMenu.draw(m_gameTitle, m_systemName, m_settings.volume, volumeChanged, online));
             if (volumeChanged) {
                 m_audio.setVolume(m_settings.volume);
@@ -909,6 +921,7 @@ void App::drawUi()
     }
 
     m_ui.drawNotifications();
+    m_achievementPopups.draw(m_covers);
     m_ui.endFrame();
 }
 
@@ -1004,7 +1017,10 @@ void App::applyPendingState()
 {
     if (m_pendingState.empty() || !m_core)
         return;
-    m_ui.notify(m_core->loadState(m_pendingState) ? "Partie reprise" : "Impossible de charger la sauvegarde d'état");
+    const bool loaded = m_core->loadState(m_pendingState);
+    if (loaded)
+        m_achievements.stateLoaded();
+    m_ui.notify(loaded ? "Partie reprise" : "Impossible de charger la sauvegarde d'état");
     m_pendingState.clear();
 }
 
@@ -1257,6 +1273,8 @@ void App::updateServices()
 
     // Mise à jour de Nexo Retro.
     updateAppUpdates();
+
+    updateAchievements();
 
     // Discord.
     m_discord.configure(m_settings.discordPresence,
@@ -1859,12 +1877,26 @@ bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::pa
 
     // Codes de triche activés pour ce jeu. Jamais sur une console partagée en
     // ligne : un seul joueur tricheur, et les parties divergeraient.
-    if (!netplay && !romPath.empty()) {
+    // Ni en mode Hardcore des succès (codes refusés par RetroAchievements).
+    const bool hardcoreWanted = m_settings.raEnabled && m_settings.raHardcore && m_achievements.login() != Achievements::Login::LoggedOut;
+    if (!netplay && !romPath.empty() && !hardcoreWanted) {
         std::vector<std::pair<std::string, bool>> codes;
         for (const Cheat& c : loadCheats(dir("cheats") / fromUtf8(stem + ".txt")))
             codes.emplace_back(c.code, c.enabled);
         if (const int n = m_core->applyCheats(codes); n > 0)
             m_ui.notify(std::to_string(n) + (n > 1 ? " codes de triche actifs" : " code de triche actif"));
+    }
+
+    // Succès RetroAchievements (pas en ligne : le rollback recharge sans cesse
+    // des états). Reprendre une partie en Hardcore est interdit : cette
+    // partie-là compte en mode normal.
+    m_achievements.setHardcore(m_settings.raHardcore);
+    if (!netplay && game) {
+        if (!m_pendingState.empty() && hardcoreWanted) {
+            m_achievements.setHardcore(false);
+            m_ui.notify("Partie reprise : succès en mode normal (le Hardcore exige de partir du début)");
+        }
+        m_achievements.loadGame(*m_core, game->system->id, romPath);
     }
 
     // Historique : date de la partie (le temps de jeu est compté à la fin).
@@ -1917,6 +1949,7 @@ void App::closeGame()
     m_input.setRemap(Remaps::identity()); // hors du jeu : chaque bouton à lui-même
     m_controlsOpen = false;
     m_slotsOpen = false;
+    m_achievementsOpen = false;
     if (!m_romPath.empty()) {
         GameRecord& record = m_userData.record(m_romPath);
         record.lastPlayed = now();
@@ -1924,6 +1957,7 @@ void App::closeGame()
         m_userData.save();
     }
     clearRewindThumbnails();
+    m_achievements.unloadGame();
     m_core.reset();
     m_coreInUse.clear();
     m_audio.clear();
@@ -2161,9 +2195,14 @@ void App::handlePauseAction(ui::PauseAction action)
     case PauseAction::Resume: setMenuOpen(false); break;
     case PauseAction::Controls: m_controlsOpen = true; break;
     case PauseAction::Slots: m_slotsOpen = true; break;
+    case PauseAction::Achievements: m_achievementsOpen = true; break;
     case PauseAction::SaveState: saveState(); break;
     case PauseAction::LoadState: loadState(); setMenuOpen(false); break;
-    case PauseAction::Reset: m_core->reset(); setMenuOpen(false); break;
+    case PauseAction::Reset:
+        m_core->reset();
+        m_achievements.reset();
+        setMenuOpen(false);
+        break;
     case PauseAction::Screenshot:
         // On ferme le menu et on capture l'image suivante, sans le menu dessus.
         setMenuOpen(false);
@@ -2251,6 +2290,7 @@ void App::speedrunKey(SDL_Keycode key)
         // Une nouvelle tentative repart du début du jeu (réglable dans l'écran Speedrun).
         if (m_settings.speedrunResetGame && m_core) {
             m_core->reset();
+            m_achievements.reset();
             m_rewind.reset();
             clearRewindThumbnails();
         }
@@ -2366,8 +2406,11 @@ void App::loadSlot(int slot)
 {
     if (!m_core)
         return;
+    if (hardcoreRefuses())
+        return;
     m_speedrun.markAssisted();
     if (m_core->loadState(slotFile(slot, ".state"))) {
+        m_achievements.stateLoaded();
         m_ui.notify("Emplacement " + std::to_string(slot + 1) + " chargé");
         setMenuOpen(false);
     } else {
@@ -2792,8 +2835,47 @@ void App::saveState()
 
 void App::loadState()
 {
+    if (hardcoreRefuses())
+        return;
     m_speedrun.markAssisted(); // (une run avec un état chargé n'est plus "d'une traite")
-    m_ui.notify(m_core->loadState(m_stateFile) ? "État chargé" : "Aucun état à charger");
+    const bool loaded = m_core->loadState(m_stateFile);
+    if (loaded)
+        m_achievements.stateLoaded();
+    m_ui.notify(loaded ? "État chargé" : "Aucun état à charger");
+}
+
+// Mode Hardcore des succès : pas de sauvegarde d'état chargée (ni de retour en
+// arrière, ni de triche). Renvoie true (avec un message) si c'est refusé.
+bool App::hardcoreRefuses()
+{
+    if (!m_achievements.blocksAssists())
+        return false;
+    m_ui.notify("Indisponible en mode Hardcore (succès)");
+    return true;
+}
+
+// Les succès, à chaque tour de boucle : réponses du site, messages à
+// afficher, jeton de connexion à enregistrer.
+void App::updateAchievements()
+{
+    m_achievements.update();
+    std::string user, token;
+    if (m_achievements.takeNewToken(user, token)) {
+        m_settings.raUser = user;
+        m_settings.raToken = token;
+        m_settings.save(dir("settings.ini"));
+    }
+    // Le Hardcore activé en pleine partie : elle repart du début.
+    if (m_achievements.takeResetRequest() && m_core) {
+        m_core->reset();
+        m_rewind.reset();
+        clearRewindThumbnails();
+    }
+    for (Achievements::Notice& n : m_achievements.takeNotices()) {
+        if (!m_settings.raNotifications && n.kind != Achievements::Notice::Kind::Error)
+            continue;
+        m_achievementPopups.push(std::move(n));
+    }
 }
 
 void App::takeScreenshot()

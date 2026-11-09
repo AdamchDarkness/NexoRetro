@@ -787,29 +787,35 @@ void FriendsScreen::drawChat(UiContext& ctx, float width, float height)
     endCard();
 }
 
-void FriendsScreen::drawHelp(float width)
+void FriendsScreen::drawHelp(UiContext& ctx, float width)
 {
-    beginCard("##how", ImVec2(width, px(330.0f)), 24.0f);
-    const float inner = ImGui::GetContentRegionAvail().x;
-    text("Comment ça marche", 18.0f, Weight::ExtraBold);
-    space(4.0f);
-    struct Step {
-        const char* title;
-        const char* body;
-    };
-    const Step steps[] = {
-        {"1. Créez un salon", "Donnez-lui un nom et, si vous voulez, un mot de passe. Votre émulateur trouve votre adresse "
-                              "sur Internet et demande à votre box d'ouvrir un port."},
-        {"2. Partagez le code", "Le code contient tout ce qu'il faut pour vous joindre, jusqu'à 7 amis. Aucun compte."},
-        {"3. Choisissez le jeu", "Chacun vérifie automatiquement qu'il a exactement le même fichier que vous."},
-    };
-    for (const Step& s : steps) {
-        text(s.title, 14.0f, Weight::Bold);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
-        textWrapped(s.body, 13.0f, Weight::Medium, theme::Muted, inner);
-        space(2.0f);
+    // Les explications laissent la place au résultat du test de connexion.
+    if (!m_test.running() && !m_test.done()) {
+        beginCard("##how", ImVec2(width, px(250.0f)), 24.0f);
+        const float inner = ImGui::GetContentRegionAvail().x;
+        text("Comment ça marche", 18.0f, Weight::ExtraBold);
+        space(4.0f);
+        struct Step {
+            const char* title;
+            const char* body;
+        };
+        const Step steps[] = {
+            {"1. Créez un salon", "Donnez-lui un nom et, si vous voulez, un mot de passe. Votre émulateur trouve votre adresse "
+                                  "sur Internet et demande à votre box d'ouvrir un port."},
+            {"2. Partagez le code", "Le code contient tout ce qu'il faut pour vous joindre, jusqu'à 7 amis. Aucun compte."},
+            {"3. Choisissez le jeu", "Chacun vérifie automatiquement qu'il a exactement le même fichier que vous."},
+        };
+        for (const Step& s : steps) {
+            text(s.title, 14.0f, Weight::Bold);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
+            textWrapped(s.body, 13.0f, Weight::Medium, theme::Muted, inner);
+            space(2.0f);
+        }
+        endCard();
+        space(14.0f);
     }
-    endCard();
+    const bool tested = m_test.running() || m_test.done();
+    drawConnectionTest(ctx, width, px(tested ? 322.0f : 104.0f));
     space(14.0f);
 
     beginCard("##vpn", ImVec2(width, px(110.0f)), 20.0f);
@@ -825,6 +831,82 @@ void FriendsScreen::drawHelp(float width)
                 "Tailscale, donnez le code complet).",
                 13.0f, Weight::Medium, theme::Muted, width - px(100.0f));
     ImGui::EndGroup();
+    endCard();
+}
+
+// --- Tester ma connexion -----------------------------------------------------------------
+// Dit en quelques secondes ce qui peut empêcher un ami de vous joindre
+// (Internet, box, pare-feu), avec la marche à suivre. Voir ConnectionTest.hpp.
+
+void FriendsScreen::drawConnectionTest(UiContext& ctx, float width, float height)
+{
+    using Test = net::ConnectionTest;
+    m_test.update();
+    beginCard("##connectionTest", ImVec2(width, height), 20.0f, theme::Surface, 24.0f, true);
+    const float inner = ImGui::GetContentRegionAvail().x;
+    const ImVec2 top = ImGui::GetCursorPos();
+    text("Tester ma connexion", 14.0f, Weight::ExtraBold);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
+    textWrapped("Vérifie en quelques secondes ce qui peut empêcher un ami de vous joindre.", 13.0f, Weight::Medium,
+                theme::Muted, inner - px(170.0f));
+    const ImVec2 after = ImGui::GetCursorPos();
+
+    // Le test utilise le port d'un salon : pas pendant une partie en ligne.
+    const bool busy = ctx.session.state() != State::Idle;
+    ImGui::SetCursorPos(ImVec2(top.x + inner - px(160.0f), top.y + px(2.0f)));
+    if (button(m_test.done() ? "Relancer" : "Lancer le test",
+               {.style = m_test.done() ? ButtonStyle::Outline : ButtonStyle::Primary, .icon = draw::Icon::Refresh,
+                .height = 40.0f, .width = 160.0f, .disabled = busy || m_test.running()}))
+        m_test.start();
+    ImGui::SetCursorPos(after);
+    space(4.0f);
+
+    if (busy && !m_test.done()) {
+        text("Quittez le salon pour lancer le test.", 12.0f, Weight::Medium, theme::Muted);
+    } else if (m_test.running()) {
+        text("Test en cours…", 13.0f, Weight::SemiBold, theme::Accent);
+    } else if (m_test.done()) {
+        const Test::Verdict v = m_test.verdict();
+        const ImU32 color = v == Test::Verdict::Ready         ? theme::Success
+                            : v == Test::Verdict::NeedsAnswer ? theme::Accent
+                            : v == Test::Verdict::Difficult   ? theme::Warning
+                                                              : theme::Danger;
+        text(net::verdictTitle(v), 15.0f, Weight::ExtraBold, color);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(6.0f));
+        textWrapped(net::verdictAdvice(v), 13.0f, Weight::Medium, theme::Body, inner);
+        space(6.0f);
+
+        // Le détail, une ligne par point vérifié.
+        auto row = [&](const char* label, const char* value, ImU32 valueColor) {
+            const ImVec2 p = ImGui::GetCursorPos();
+            text(label, 13.0f, Weight::Medium, theme::Muted);
+            const ImVec2 next = ImGui::GetCursorPos();
+            const ImVec2 vs = draw::measure(Weight::Bold, 13.0f, value);
+            ImGui::SetCursorPos(ImVec2(p.x + inner - vs.x, p.y));
+            text(value, 13.0f, Weight::Bold, valueColor);
+            ImGui::SetCursorPos(ImVec2(next.x, next.y - px(4.0f)));
+        };
+        const int answers = m_test.answers();
+        row("Internet", answers > 0 ? "Répond" : "Pas de réponse", answers > 0 ? theme::Success : theme::Danger);
+        if (answers > 0) {
+            const Test::Mapping m = m_test.mapping();
+            row("Port de la box", m == Test::Mapping::Stable ? "Stable" : m == Test::Mapping::Nearby ? "Change un peu" : "Change à chaque fois",
+                m == Test::Mapping::Stable ? theme::Success : m == Test::Mapping::Nearby ? theme::Accent : theme::Warning);
+            row("Ouverture automatique (UPnP)", m_test.upnp() ? "Oui" : "Refusée", m_test.upnp() ? theme::Success : theme::Muted);
+        }
+#ifdef _WIN32
+        const Test::Firewall fw = m_test.firewall();
+        row("Pare-feu de Windows", fw == Test::Firewall::Allowed ? "Autorisé" : fw == Test::Firewall::Blocked ? "Bloqué" : "Inconnu",
+            fw == Test::Firewall::Allowed ? theme::Success : fw == Test::Firewall::Blocked ? theme::Danger : theme::Muted);
+#endif
+        space(8.0f);
+        // Le rapport complet, à envoyer à l'ami (ou dans un message d'aide).
+        if (button("Copier le rapport", {.style = ButtonStyle::Ghost, .icon = draw::Icon::Copy, .height = 38.0f}))
+            SDL_SetClipboardText(m_test.report().c_str());
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(4.0f));
+        textWrapped("Faites aussi le test chez votre ami : le problème peut venir de chez lui.", 12.0f, Weight::Medium,
+                    theme::Muted, inner);
+    }
     endCard();
 }
 
@@ -861,7 +943,7 @@ void FriendsScreen::draw(UiContext& ctx)
     } else if (!ctx.online.chat.empty()) {
         drawChat(ctx, rightW, ImGui::GetContentRegionAvail().y); // la discussion reste lisible après la fin du salon
     } else {
-        drawHelp(rightW);
+        drawHelp(ctx, rightW);
     }
     ImGui::EndGroup();
     drawGamePicker(ctx);

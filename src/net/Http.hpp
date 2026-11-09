@@ -39,6 +39,11 @@ public:
     // cancel : si ce drapeau passe à true, le téléchargement s'arrête.
     // progress : rempli au fur et à mesure (facultatif).
     HttpResponse get(const std::string& url, const std::atomic<bool>* cancel = nullptr, Progress* progress = nullptr);
+    // Envoie un formulaire (POST) : utile quand les données ne doivent pas
+    // apparaître dans l'adresse (un mot de passe, par exemple). Le contenu de
+    // la réponse est gardé même si le serveur répond par une erreur (400...).
+    HttpResponse post(const std::string& url, const std::string& body,
+                      const std::string& contentType = "application/x-www-form-urlencoded");
 
 private:
     // HINTERNET est un "void*" : on évite d'inclure <windows.h> partout.

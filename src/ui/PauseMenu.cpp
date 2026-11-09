@@ -65,6 +65,8 @@ PauseAction PauseMenu::draw(const std::string& gameTitle, const std::string& sys
     item("Plein écran (F11)", PauseAction::Fullscreen, ButtonStyle::Soft, draw::Icon::None);
 #endif
     item("Commandes de la console", PauseAction::Controls, ButtonStyle::Soft, draw::Icon::Gamepad);
+    if (online.achievements)
+        item("Succès", PauseAction::Achievements, ButtonStyle::Soft, draw::Icon::Check);
     if (online.online) {
         // En ligne : le micro, et le ping à l'écran.
         if (online.voice)

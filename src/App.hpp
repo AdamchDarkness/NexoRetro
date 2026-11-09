@@ -2,6 +2,8 @@
 // App : le chef d'orchestre. Il possède tous les modules et passe d'un mode
 // à l'autre : interface (bibliothèque...) <-> jeu (avec son menu pause).
 
+#include "Achievements.hpp"
+#include "ui/AchievementPopup.hpp"
 #include "AppUpdater.hpp"
 #include "Audio.hpp"
 #include "Bios.hpp"
@@ -160,6 +162,8 @@ private:
     void speedrunKey(SDL_Keycode key);
     void drawTimeBadge();      // "Avance rapide x4" / "Retour en arrière" à l'écran
     void saveState();
+    bool hardcoreRefuses();     // mode Hardcore : action refusée (avec un message)
+    void updateAchievements();
     void loadState();
     void takeScreenshot();
     bool launchExternal(const Game& game); // Switch, Xbox, PS3... : émulateur externe
@@ -205,6 +209,8 @@ private:
     std::string m_testAppUpdate;   // EMU_TEST_APP_UPDATE (tests) : "", "1", "download" ou "install"
     VoiceChat m_voice;             // chat vocal du salon
     DiscordPresence m_discord;     // "Joue à ..." sur Discord
+    Achievements m_achievements;   // succès RetroAchievements
+    ui::AchievementPopups m_achievementPopups; // ... et leurs bandeaux pendant le jeu
     PortableCopy m_portableCopy;   // copie portable sur clé USB (Paramètres > Dossiers)
     std::string m_coreInUse;       // le .dll du jeu en cours (à ne pas mettre à jour pendant la partie)
     Remaps m_remaps;               // commandes propres à chaque console (remaps.txt)
@@ -219,6 +225,7 @@ private:
     bool m_parentalWarned = false; // "Plus que 5 minutes" déjà dit pour cette partie
     bool m_controlsOpen = false;   // écran "Commandes" ouvert dans le menu pause
     bool m_slotsOpen = false;      // écran "Emplacements de sauvegarde" ouvert dans le menu pause
+    bool m_achievementsOpen = false; // menu pause > Succès
     struct LaunchAfterCore {       // jeu lancé dont l'émulateur se télécharge
         std::string core;
         std::filesystem::path game;

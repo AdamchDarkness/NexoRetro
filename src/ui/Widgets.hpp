@@ -59,7 +59,9 @@ bool combo(const char* id, std::span<const char* const> items, int* current, flo
 
 // --- Saisie ------------------------------------------------------------
 bool searchField(const char* id, char* buffer, size_t bufferSize, const char* hint, float width, bool focus = false);
-bool textField(const char* id, char* buffer, size_t bufferSize, const char* hint, float width, bool disabled = false);
+// password : les lettres tapées sont cachées (points).
+bool textField(const char* id, char* buffer, size_t bufferSize, const char* hint, float width, bool disabled = false,
+               bool password = false);
 
 // --- Affichage ---------------------------------------------------------
 // Info : gris sur fond gris clair (dans une carte blanche).

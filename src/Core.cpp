@@ -361,6 +361,16 @@ uint64_t Core::memoryFingerprint() const
     return any ? hasher.finish() | 1 : 0; // jamais 0 quand elle existe
 }
 
+void* Core::memoryData(unsigned id, size_t& size) const
+{
+    size = 0;
+    if (!m_api.getMemoryData || !m_api.getMemorySize)
+        return nullptr;
+    void* data = m_api.getMemoryData(id);
+    size = data ? m_api.getMemorySize(id) : 0;
+    return data;
+}
+
 bool Core::saveSram(const std::filesystem::path& file) const
 {
     const void* data = m_api.getMemoryData(RETRO_MEMORY_SAVE_RAM);
@@ -411,6 +421,23 @@ bool Core::onEnvironment(unsigned cmd, void* data)
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
         *static_cast<const char**>(data) = self.m_saveDir.c_str();
         return true;
+    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
+        // La carte de la mémoire de la console : quelle adresse correspond à
+        // quel morceau de mémoire du core. Les succès en ont besoin pour lire
+        // la mémoire du jeu. On la recopie (le core peut libérer la sienne).
+        const auto* map = static_cast<const retro_memory_map*>(data);
+        self.m_memoryDescriptors.assign(map->descriptors, map->descriptors + map->num_descriptors);
+        self.m_memorySpaces.clear();
+        self.m_memorySpaces.reserve(map->num_descriptors); // (pas de réallocation : les c_str() restent valables)
+        for (retro_memory_descriptor& d : self.m_memoryDescriptors)
+            if (d.addrspace) {
+                self.m_memorySpaces.emplace_back(d.addrspace);
+                d.addrspace = self.m_memorySpaces.back().c_str();
+            }
+        self.m_memoryMap.descriptors = self.m_memoryDescriptors.data();
+        self.m_memoryMap.num_descriptors = static_cast<unsigned>(self.m_memoryDescriptors.size());
+        return true;
+    }
     case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
         self.m_supportsNoGame = *static_cast<const bool*>(data);
         return true;

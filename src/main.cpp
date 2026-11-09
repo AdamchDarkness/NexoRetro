@@ -6,6 +6,7 @@
 #include "App.hpp"
 #include "Paths.hpp"
 #include "Utf8.hpp"
+#include "net/ConnectionTest.hpp"
 #ifdef __ANDROID__
 #include "android/Jni.hpp"
 #endif
@@ -191,6 +192,8 @@ bool parseArgs(int argc, char** argv, AppOptions& out)
             out.inputSource = Input::Source::Gamepad;
             out.inputPad = std::max(0, std::atoi(argv[++i]) - 1); // l'utilisateur compte à partir de 1
         }
+        else if (arg == "--net-test")
+            ; // (traité dans main)
         else if (arg == "-h" || arg == "--help")
             return false;
         else if (out.core.empty())
@@ -290,6 +293,22 @@ int main(int argc, char** argv)
     if (options.dataDir.empty())
         options.dataDir = defaultDataDir(); // à côté de l'exe, ou %APPDATA%\NexoRetro si installé
     startLogFile(options.dataDir);
+    // --net-test : le "Tester ma connexion" de l'écran Amis, sans fenêtre
+    // (tests automatiques) ; le rapport s'affiche puis le programme s'arrête.
+    for (int i = 1; i < argc; ++i)
+        if (std::string_view(argv[i]) == "--net-test") {
+            SDL_Init(0); // (l'horloge de SDL)
+            net::NetworkSystem network;
+            net::ConnectionTest test;
+            test.start();
+            while (!test.done()) {
+                test.update();
+                SDL_Delay(20);
+            }
+            std::fputs(test.report().c_str(), stdout);
+            std::fflush(stdout);
+            return 0;
+        }
     // Une fenêtre qui n'écoute qu'une manette doit la lire même quand elle
     // n'est pas au premier plan (l'autre fenêtre a le clavier).
     if (options.inputSource == Input::Source::Gamepad)

@@ -159,6 +159,40 @@ public final class NexoBridge {
         }
     }
 
+    // Envoi d'un formulaire (POST) : connexion à RetroAchievements (le mot de
+    // passe ne doit pas apparaître dans l'adresse). Garde la réponse d'erreur.
+    public static byte[] httpPost(String url, String userAgent, byte[] body, String contentType, int[] status) {
+        status[0] = 0;
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("User-Agent", userAgent);
+            connection.setRequestProperty("Content-Type", contentType);
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(30000);
+            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode(body.length);
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(body);
+            }
+            status[0] = connection.getResponseCode();
+            InputStream in = status[0] >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (in == null)
+                return new byte[0];
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            copy(in, out);
+            in.close();
+            return out.toByteArray();
+        } catch (Exception e) {
+            Log.w(TAG, "Envoi vers " + url + " : " + e);
+            return null;
+        } finally {
+            if (connection != null)
+                connection.disconnect();
+        }
+    }
+
     // --- Chiffrement (relais du jeu en ligne) ---------------------------------------------------
 
     public static byte[] sha256(byte[] data) {

@@ -85,7 +85,9 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui PUBLIC ${NEXO_SDL} nexo_gl)
 if(ANDROID)
-    target_compile_definitions(imgui PUBLIC IMGUI_IMPL_OPENGL_ES3)
+    # Mode ES 2 : marche aussi dans un contexte ES 3, et c'est le seul possible
+    # sur les GPU limités à OpenGL ES 2.0 (Mali-450 des boîtiers TV).
+    target_compile_definitions(imgui PUBLIC IMGUI_IMPL_OPENGL_ES2)
 endif()
 
 # --- miniupnpc : demander à la box d'ouvrir un port (UPnP) ------------------
@@ -119,6 +121,29 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(opus)
 
+# --- rcheevos : les succès RetroAchievements ---------------------------------
+# La bibliothèque officielle de RetroAchievements : elle lit la mémoire du jeu
+# à chaque image et reconnaît les exploits ("battre le premier boss sans être
+# touché"). Elle ne fait aucun accès réseau elle-même : c'est nous qui
+# transportons ses requêtes (voir src/Achievements.cpp). Pas de CMake fourni :
+# on compile ses fichiers .c nous-mêmes.
+FetchContent_Declare(
+    rcheevos
+    URL https://github.com/RetroAchievements/rcheevos/archive/refs/tags/v12.5.0.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(rcheevos)
+file(GLOB RCHEEVOS_SOURCES
+    ${rcheevos_SOURCE_DIR}/src/*.c
+    ${rcheevos_SOURCE_DIR}/src/rapi/*.c
+    ${rcheevos_SOURCE_DIR}/src/rcheevos/*.c
+    ${rcheevos_SOURCE_DIR}/src/rhash/*.c)
+add_library(rcheevos STATIC ${RCHEEVOS_SOURCES})
+target_include_directories(rcheevos PUBLIC ${rcheevos_SOURCE_DIR}/include ${rcheevos_SOURCE_DIR}/src
+                           PRIVATE third_party/libretro)
+# RC_CLIENT_SUPPORTS_HASH : rc_client calcule lui-même l'empreinte du jeu.
+target_compile_definitions(rcheevos PUBLIC RC_DISABLE_LUA RC_CLIENT_SUPPORTS_HASH)
+
 # --- L'exécutable ----------------------------------------------------------
 set(NEXO_SOURCES
     # Le moteur : chargement des cores, image, son, manettes.
@@ -127,6 +152,7 @@ set(NEXO_SOURCES
     src/Core.cpp
     src/CoreOptions.cpp
     src/Cheats.cpp
+    src/Achievements.cpp
     src/SaveFiles.cpp
     src/Lang.cpp
     src/Arabic.cpp
@@ -165,6 +191,7 @@ set(NEXO_SOURCES
     src/net/Relay.cpp
     src/net/Url.cpp
     src/net/Stun.cpp
+    src/net/ConnectionTest.cpp
     src/net/Upnp.cpp
     src/net/InviteCode.cpp
     src/net/Session.cpp
@@ -182,6 +209,7 @@ set(NEXO_SOURCES
     src/ui/Draw.cpp
     src/ui/Widgets.cpp
     src/ui/Covers.cpp
+    src/ui/AchievementPopup.cpp
     src/ui/Common.cpp
     src/ui/Shell.cpp
     src/ui/HomeScreen.cpp
@@ -222,7 +250,7 @@ else()
     set_target_properties(emulateur PROPERTIES OUTPUT_NAME NexoRetro WIN32_EXECUTABLE TRUE)
 endif()
 target_include_directories(emulateur PRIVATE third_party/libretro third_party/stb)
-target_link_libraries(emulateur PRIVATE ${NEXO_SDL} nexo_gl imgui miniupnpc::miniupnpc Vulkan::Headers opus)
+target_link_libraries(emulateur PRIVATE ${NEXO_SDL} nexo_gl imgui miniupnpc::miniupnpc Vulkan::Headers opus rcheevos)
 if(WIN32)
     # ws2_32 : les sockets de Windows ; iphlpapi : la liste des cartes réseau ;
     # winhttp : les téléchargements HTTPS (scraping) ; bcrypt : l'empreinte

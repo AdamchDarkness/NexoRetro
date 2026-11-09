@@ -342,7 +342,7 @@ bool searchField(const char* id, char* buffer, size_t bufferSize, const char* hi
     return changed;
 }
 
-bool textField(const char* id, char* buffer, size_t bufferSize, const char* hint, float width, bool disabled)
+bool textField(const char* id, char* buffer, size_t bufferSize, const char* hint, float width, bool disabled, bool password)
 {
     ImGui::PushFont(theme::font(Weight::SemiBold), px(14.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, px(16.0f, 12.0f));
@@ -352,7 +352,8 @@ bool textField(const char* id, char* buffer, size_t bufferSize, const char* hint
     ImGui::PushStyleColor(ImGuiCol_TextDisabled, theme::Muted);
     ImGui::SetNextItemWidth(width > 0 ? px(width) : -FLT_MIN);
     ImGui::BeginDisabled(disabled);
-    const bool changed = ImGui::InputTextWithHint(id, std::string(lang::tr(hint)).c_str(), buffer, bufferSize);
+    const bool changed = ImGui::InputTextWithHint(id, std::string(lang::tr(hint)).c_str(), buffer, bufferSize,
+                                                  password ? ImGuiInputTextFlags_Password : ImGuiInputTextFlags_None);
     ImGui::EndDisabled();
     ImGui::PopStyleColor(4);
     ImGui::PopStyleVar();

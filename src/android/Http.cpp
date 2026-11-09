@@ -56,4 +56,42 @@ HttpResponse HttpClient::get(const std::string& url, const std::atomic<bool>* ca
     return response;
 }
 
+HttpResponse HttpClient::post(const std::string& url, const std::string& body, const std::string& contentType)
+{
+    HttpResponse response;
+    JNIEnv* e = android::env();
+    jmethodID m = e->GetStaticMethodID(android::bridge(), "httpPost",
+                                       "(Ljava/lang/String;Ljava/lang/String;[BLjava/lang/String;[I)[B");
+    if (!m) {
+        e->ExceptionClear();
+        response.error = "envoi indisponible";
+        return response;
+    }
+    jstring jurl = android::toJava(url);
+    jstring jagent = android::toJava(*static_cast<std::string*>(m_session));
+    jstring jtype = android::toJava(contentType);
+    jbyteArray jbody = e->NewByteArray(static_cast<jsize>(body.size()));
+    e->SetByteArrayRegion(jbody, 0, static_cast<jsize>(body.size()), reinterpret_cast<const jbyte*>(body.data()));
+    jintArray status = e->NewIntArray(1);
+    auto answer = static_cast<jbyteArray>(e->CallStaticObjectMethod(android::bridge(), m, jurl, jagent, jbody, jtype, status));
+    if (e->ExceptionCheck()) {
+        e->ExceptionClear();
+        answer = nullptr;
+    }
+    jint code = 0;
+    e->GetIntArrayRegion(status, 0, 1, &code);
+    response.status = code;
+    response.body = android::fromJava(answer);
+    if (code == 0)
+        response.error = "pas de réponse (connexion Internet ?)";
+    e->DeleteLocalRef(jurl);
+    e->DeleteLocalRef(jagent);
+    e->DeleteLocalRef(jtype);
+    e->DeleteLocalRef(jbody);
+    e->DeleteLocalRef(status);
+    if (answer)
+        e->DeleteLocalRef(answer);
+    return response;
+}
+
 } // namespace net

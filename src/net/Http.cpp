@@ -59,8 +59,13 @@ HttpClient::~HttpClient()
         WinHttpCloseHandle(m_session);
 }
 
-HttpResponse HttpClient::get(const std::string& url, const std::atomic<bool>* cancel, Progress* progress)
+namespace {
+
+// GET ou POST (body : le formulaire à envoyer, nullptr pour un GET).
+HttpResponse perform(void* session, const wchar_t* verb, const std::string& url, const std::string* body,
+                     const std::string& contentType, const std::atomic<bool>* cancel, HttpClient::Progress* progress)
 {
+    void* const m_session = session;
     HttpResponse response;
     if (!m_session) {
         response.error = "WinHTTP indisponible";
@@ -88,7 +93,7 @@ HttpResponse HttpClient::get(const std::string& url, const std::atomic<bool>* ca
         response.error = lastError("La connexion");
         return response;
     }
-    Handle request{WinHttpOpenRequest(connection.h, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
+    Handle request{WinHttpOpenRequest(connection.h, verb, path.c_str(), nullptr, WINHTTP_NO_REFERER,
                                       WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0)};
     if (!request.h) {
         response.error = lastError("La requête");
@@ -99,7 +104,11 @@ HttpResponse HttpClient::get(const std::string& url, const std::atomic<bool>* ca
     DWORD decompression = WINHTTP_DECOMPRESSION_FLAG_ALL;
     WinHttpSetOption(request.h, WINHTTP_OPTION_DECOMPRESSION, &decompression, sizeof(decompression));
 
-    if (!WinHttpSendRequest(request.h, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+    const std::wstring headers = body ? L"Content-Type: " + widen(contentType) + L"\r\n" : std::wstring();
+    void* const data = body ? const_cast<char*>(body->data()) : WINHTTP_NO_REQUEST_DATA;
+    const DWORD bodySize = body ? static_cast<DWORD>(body->size()) : 0;
+    if (!WinHttpSendRequest(request.h, body ? headers.c_str() : WINHTTP_NO_ADDITIONAL_HEADERS, body ? static_cast<DWORD>(-1) : 0,
+                            data, bodySize, bodySize, 0) ||
         !WinHttpReceiveResponse(request.h, nullptr)) {
         response.error = lastError("Le téléchargement");
         return response;
@@ -110,8 +119,8 @@ HttpResponse HttpClient::get(const std::string& url, const std::atomic<bool>* ca
     WinHttpQueryHeaders(request.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
                         &status, &size, WINHTTP_NO_HEADER_INDEX);
     response.status = static_cast<int>(status);
-    if (status != 200)
-        return response; // inutile de lire une page d'erreur
+    if (status != 200 && !body)
+        return response; // inutile de lire une page d'erreur (un POST, lui, explique souvent l'erreur)
     if (progress) {
         // La taille annoncée par le serveur (absente parfois).
         DWORD length = 0;
@@ -145,6 +154,18 @@ HttpResponse HttpClient::get(const std::string& url, const std::atomic<bool>* ca
             progress->received = response.body.size();
     }
     return response;
+}
+
+} // namespace
+
+HttpResponse HttpClient::get(const std::string& url, const std::atomic<bool>* cancel, Progress* progress)
+{
+    return perform(m_session, L"GET", url, nullptr, {}, cancel, progress);
+}
+
+HttpResponse HttpClient::post(const std::string& url, const std::string& body, const std::string& contentType)
+{
+    return perform(m_session, L"POST", url, &body, contentType, nullptr, nullptr);
 }
 
 } // namespace net

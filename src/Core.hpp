@@ -91,6 +91,11 @@ public:
     // 0 si le core ne la montre pas. Contrairement à la sauvegarde d'état,
     // elle ignore les détails propres à chaque PC (tampons de son...).
     uint64_t memoryFingerprint() const;
+    // La mémoire de la console, pour les succès (Achievements.hpp) : la carte
+    // détaillée annoncée par le core (SET_MEMORY_MAPS, nullptr s'il n'en
+    // donne pas) et les zones simples (RETRO_MEMORY_SYSTEM_RAM...).
+    const retro_memory_map* memoryMap() const { return m_memoryMap.num_descriptors ? &m_memoryMap : nullptr; }
+    void* memoryData(unsigned id, size_t& size) const;
     std::string coreInfo() const; // "Snes9x 1.62.3" : nom et version exacts
     // Ses sauvegardes d'état sont-elles assez fiables pour le rollback ?
     // (Le core peut le signaler lui-même ; sinon, liste des cas connus.)
@@ -249,6 +254,10 @@ private:
     bool m_supportsNoGame = false;
     std::vector<std::vector<ControllerType>> m_controllerTypes; // un vecteur par port
     std::vector<InputDescriptor> m_inputDescriptors;
+    // Copie de la carte mémoire du core (ses textes "addrspace" compris).
+    retro_memory_map m_memoryMap{};
+    std::vector<retro_memory_descriptor> m_memoryDescriptors;
+    std::vector<std::string> m_memorySpaces;
     uint64_t m_serializationQuirks = 0;
     bool m_netplay = false;
     bool m_preferVulkan = false;
