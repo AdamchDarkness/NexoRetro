@@ -42,8 +42,9 @@ android {
         }
         ndk {
             // arm64-v8a : téléphones, tablettes et boîtiers TV récents ;
+            // armeabi-v7a : boîtiers TV en Android 32 bits (Xiaomi Mi Box 4...) ;
             // x86_64 : l'émulateur Android du PC (tests).
-            abiFilters 'arm64-v8a', 'x86_64'
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
         }
     }
 

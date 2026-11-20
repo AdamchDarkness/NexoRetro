@@ -202,7 +202,9 @@ bool Core::loadGame(const std::filesystem::path& romPath)
 
     if (!romPath.empty()) {
         // Les cores libretro attendent des chemins en UTF-8.
-        m_romPath = toUtf8(romPath);
+        // Avec les séparateurs du système : sous Windows, FBNeo et MAME ne
+        // retrouvent pas le dossier du jeu dans un chemin écrit avec des "/".
+        m_romPath = toUtf8(std::filesystem::path(romPath).make_preferred());
         game.path = m_romPath.c_str();
         // Certains cores (souvent ceux des consoles à CD) veulent juste le
         // chemin et lisent le fichier eux-mêmes. Les autres veulent les octets.

@@ -246,6 +246,11 @@ private:
     // Retour en arrière et avance rapide.
     Rewind m_rewind;
     bool m_rewindUsable = true; // faux pour les consoles aux états trop gros (PS2, GameCube...)
+    // Une photo toutes les N images : 1 d'habitude, plus quand photographier
+    // coûte cher (voir captureRewind).
+    int m_rewindInterval = 1;
+    double m_rewindCostMs = 0.0; // coût moyen d'une photo (moyenne glissante)
+    uint64_t m_rewindTick = 0;   // images jouées depuis le lancement du jeu
     enum class TimeMode { Normal, Fast, Rewinding, RewindEnd };
     TimeMode m_timeMode = TimeMode::Normal;
     int m_gameLoops = 0; // tours de boucle passés en jeu (tests du rewind)

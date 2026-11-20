@@ -2,14 +2,17 @@ package org.nexoretro.app;
 
 import android.app.Activity;
 import android.app.UiModeManager;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -95,6 +98,34 @@ public final class NexoBridge {
             return context().getPackageManager().getPackageInfo(context().getPackageName(), 0).lastUpdateTime;
         } catch (Exception e) {
             return 0;
+        }
+    }
+
+    // Le sélecteur de fichiers d'Android ne donne pas un chemin mais une
+    // adresse "content://..." : on recopie le document dans destDir, sous
+    // son nom d'origine. Renvoie le chemin de la copie (null en cas d'échec).
+    public static String copyDocument(String uri, String destDir) {
+        try {
+            Uri document = Uri.parse(uri);
+            ContentResolver resolver = context().getContentResolver();
+            String name = null;
+            try (Cursor cursor = resolver.query(document, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst())
+                    name = cursor.getString(0);
+            }
+            if (name == null || name.isEmpty())
+                name = document.getLastPathSegment();
+            name = name.replace('/', '_');
+            File dir = new File(destDir);
+            dir.mkdirs();
+            File out = new File(dir, name);
+            try (InputStream in = resolver.openInputStream(document); OutputStream os = new FileOutputStream(out)) {
+                copy(in, os);
+            }
+            return out.getAbsolutePath();
+        } catch (Exception e) {
+            Log.w(TAG, "Copie du document " + uri + " : " + e);
+            return null;
         }
     }
 

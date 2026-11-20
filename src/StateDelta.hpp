@@ -38,10 +38,17 @@ inline std::string encodeXor(const std::string& a, const std::string& b)
 {
     std::string out;
     const size_t n = a.size();
+    // (Pointeurs bruts : cette boucle tourne sur plusieurs Mo, 60 fois par
+    // seconde pour le retour en arrière.)
+    const char* pa = a.data();
+    const char* pb = b.data();
     size_t i = 0;
     while (i < n) {
+        // Les octets identiques, comparés 8 à la fois tant que c'est possible.
         size_t zeros = 0;
-        while (i + zeros < n && a[i + zeros] == b[i + zeros])
+        while (i + zeros + 8 <= n && std::memcmp(pa + i + zeros, pb + i + zeros, 8) == 0)
+            zeros += 8;
+        while (i + zeros < n && pa[i + zeros] == pb[i + zeros])
             ++zeros;
         size_t start = i + zeros;
         size_t literal = 0;
@@ -49,7 +56,7 @@ inline std::string encodeXor(const std::string& a, const std::string& b)
         // (moins, ce ne serait pas rentable de couper le bloc).
         while (start + literal < n) {
             size_t run = 0;
-            while (start + literal + run < n && run < 8 && a[start + literal + run] == b[start + literal + run])
+            while (start + literal + run < n && run < 8 && pa[start + literal + run] == pb[start + literal + run])
                 ++run;
             if (run >= 8 || start + literal + run == n)
                 break;
@@ -57,8 +64,12 @@ inline std::string encodeXor(const std::string& a, const std::string& b)
         }
         put32(out, static_cast<uint32_t>(zeros));
         put32(out, static_cast<uint32_t>(literal));
+        // (D'un bloc : bien plus rapide qu'un octet à la fois.)
+        const size_t at = out.size();
+        out.resize(at + literal);
+        char* dst = out.data() + at;
         for (size_t k = 0; k < literal; ++k)
-            out.push_back(static_cast<char>(a[start + k] ^ b[start + k]));
+            dst[k] = static_cast<char>(pa[start + k] ^ pb[start + k]);
         i = start + literal;
     }
     return out;

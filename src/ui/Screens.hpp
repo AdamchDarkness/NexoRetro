@@ -150,6 +150,20 @@ std::filesystem::path autoStateFile(const UiContext& ctx, const Game& game);
 std::filesystem::path gameSaveDir(const UiContext& ctx, const Game& game);
 // La sauvegarde du jeu lui-même (la "pile" de la cartouche) : saves/<nom>/<nom>.srm.
 std::filesystem::path gameSaveFile(const UiContext& ctx, const Game& game);
+// Carte mémoire tenue par le core lui-même. Sur PS2, GameCube et Wii, la
+// progression n'est pas dans un .srm par jeu : le core écrit sa propre carte
+// (ou la mémoire interne de la console), partagée par tous les jeux.
+// (La PS1 n'en fait pas partie : sa carte 1 passe par le .srm du jeu.)
+struct MemoryCard {
+    std::filesystem::path folder; // le dossier à ouvrir
+    std::filesystem::path file;   // le fichier de la carte (PS2) ; vide : un dossier de sauvegardes
+    const char* title = "";       // "Carte mémoire PS2"
+    const char* note = "";        // explication pour la fenêtre de sauvegarde
+    long long time = 0;           // dernière écriture (0 : rien encore)
+    std::uintmax_t size = 0;      // taille totale
+};
+// false : ce jeu utilise la sauvegarde habituelle (gameSaveFile).
+bool memoryCardOf(const UiContext& ctx, const Game& game, MemoryCard& card);
 // Les codes de triche du jeu : cheats/<nom>.txt.
 std::filesystem::path cheatsFile(const UiContext& ctx, const Game& game);
 

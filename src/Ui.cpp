@@ -11,6 +11,9 @@
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl3.h>
 #include <SDL3/SDL.h>
+#ifdef __ANDROID__
+#include "GlFunctions.hpp" // gl::es2
+#endif
 
 #include <algorithm>
 
@@ -55,7 +58,8 @@ bool Ui::initRenderer()
     if (m_rendererReady)
         return true;
 #ifdef __ANDROID__
-    m_rendererReady = ImGui_ImplOpenGL3_Init("#version 300 es"); // OpenGL ES 3
+    // (OpenGL ES 2.0 sur les vieux boîtiers TV : GLSL ES 1.00.)
+    m_rendererReady = ImGui_ImplOpenGL3_Init(gl::es2 ? "#version 100" : "#version 300 es");
 #else
     m_rendererReady = ImGui_ImplOpenGL3_Init("#version 330 core");
 #endif

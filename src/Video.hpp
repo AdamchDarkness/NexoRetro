@@ -105,6 +105,7 @@ private:
     int m_flipYLocation = -1;
     int m_swapRBLocation = -1;          // OpenGL ES : échange rouge et bleu (XRGB8888)
     std::vector<uint16_t> m_converted;  // OpenGL ES : image 0RGB1555 convertie en RGB565
+    std::vector<uint8_t> m_packed;      // OpenGL ES 2 : lignes recollées (pas de GL_UNPACK_ROW_LENGTH)
 
     retro_hw_render_callback m_hw{};
     bool m_hwRender = false;

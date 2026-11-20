@@ -57,6 +57,38 @@ void main()
 }
 )";
 
+#ifdef NEXO_GLES
+// Les mêmes en GLSL ES 1.00, pour OpenGL ES 2.0 (gl::es2) : pas de
+// gl_VertexID, les coins arrivent par un attribut ("corner").
+const char* const kVertexShaderEs2 = R"(#version 100
+precision mediump float;
+attribute vec2 corner;
+uniform vec2 uvScale;
+uniform float flipY;
+varying vec2 uv;
+void main()
+{
+    gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+    uv = vec2(corner.x, mix(corner.y, 1.0 - corner.y, flipY)) * uvScale;
+}
+)";
+
+const char* const kFragmentShaderEs2 = R"(#version 100
+precision mediump float;
+uniform sampler2D frame;
+uniform float swapRB;
+varying vec2 uv;
+void main()
+{
+    vec3 c = texture2D(frame, uv).rgb;
+    gl_FragColor = vec4(mix(c, c.bgr, swapRB), 1.0);
+}
+)";
+
+// Les 4 coins du rectangle, dans l'ordre de gl_VertexID : (0,0) (1,0) (0,1) (1,1).
+const GLfloat kCorners[] = {0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f};
+#endif
+
 // Comment décrire chaque format de pixels libretro à OpenGL.
 struct GlPixelFormat {
     GLint internalFormat;
@@ -70,9 +102,10 @@ GlPixelFormat toGl(retro_pixel_format format)
 #ifdef NEXO_GLES
     // XRGB8888 : lu comme du RGBA (le shader remet les couleurs dans l'ordre) ;
     // 0RGB1555 : converti en RGB565 avant l'envoi (voir Video::upload).
+    // (OpenGL ES 2 : le format interne doit être identique au format.)
     if (format == RETRO_PIXEL_FORMAT_XRGB8888)
-        return {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, 4};
-    return {GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 2};
+        return {gl::es2 ? GLint(GL_RGBA) : GLint(GL_RGBA8), GL_RGBA, GL_UNSIGNED_BYTE, 4};
+    return {gl::es2 ? GLint(GL_RGB) : GLint(GL_RGB565), GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 2};
 #else
     switch (format) {
     case RETRO_PIXEL_FORMAT_XRGB8888: return {GL_RGBA8, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 4};
@@ -124,6 +157,26 @@ bool Video::open(const char* title, int width, int height, bool autoSize)
     // Android : tout l'écran, sans la barre d'état ni les boutons du système
     // (ils réapparaissent en glissant le doigt depuis le bord).
     m_window = SDL_CreateWindow(title, width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN);
+    if (!m_window) {
+        // Les vieux GPU (Mali-400/450 des boîtiers TV) n'ont qu'OpenGL ES 2.0 :
+        // leur pilote refuse même la question "ES 3 ?" (EGL_BAD_ATTRIBUTE).
+        // On redemande en ES 2.0, avec le strict minimum (couleurs seules).
+        SDL_Log("Fenêtre OpenGL ES 3 impossible (%s) : essai en OpenGL ES 2.0", SDL_GetError());
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 5);
+        SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 6);
+        SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 5);
+        SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+        SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
+        SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 0);
+        m_window = SDL_CreateWindow(title, width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN);
+        if (m_window)
+            gl::es2 = true;
+    }
 #else
     m_window = SDL_CreateWindow(title, width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 #endif
@@ -149,7 +202,7 @@ void Video::destroyContext()
         }
         if (m_frameTexture)
             glDeleteTextures(1, &m_frameTexture);
-        if (m_vao)
+        if (m_vao && gl::DeleteVertexArrays)
             gl::DeleteVertexArrays(1, &m_vao);
         if (m_program)
             gl::DeleteProgram(m_program);
@@ -211,6 +264,13 @@ bool Video::requestHwRender(retro_hw_render_callback& callback)
     case RETRO_HW_CONTEXT_OPENGLES2:
     case RETRO_HW_CONTEXT_OPENGLES3:
     case RETRO_HW_CONTEXT_OPENGLES_VERSION:
+        // Appareil limité à OpenGL ES 2.0 : un core qui veut ES 3 est refusé
+        // (il essaie souvent un autre rendu, logiciel par exemple).
+        if (gl::es2 && (callback.context_type == RETRO_HW_CONTEXT_OPENGLES3 ||
+                        (callback.context_type == RETRO_HW_CONTEXT_OPENGLES_VERSION && callback.version_major >= 3))) {
+            SDL_Log("Le core demande OpenGL ES 3, cet appareil n'a qu'OpenGL ES 2.0");
+            return false;
+        }
         break;
 #else
     case RETRO_HW_CONTEXT_OPENGL:
@@ -259,12 +319,19 @@ bool Video::createContext(const retro_game_geometry& geometry)
     // OpenGL ES : la plus récente des versions 3.x (3.2 pour les cores qui
     // s'en servent, 3.0 au minimum pour notre interface).
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    for (int minor : {2, 1, 0}) {
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
+    if (gl::es2) {
+        // (Fenêtre créée en ES 2.0 : voir Video::open.)
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
         m_context = SDL_GL_CreateContext(m_window);
-        if (m_context)
-            break;
+    } else {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        for (int minor : {2, 1, 0}) {
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
+            m_context = SDL_GL_CreateContext(m_window);
+            if (m_context)
+                break;
+        }
     }
 #else
     if (glCore && m_hw.context_type == RETRO_HW_CONTEXT_OPENGL) {
@@ -317,7 +384,7 @@ bool Video::createContext(const retro_game_geometry& geometry)
 
     if (m_hwVulkan) {
         // Le device Vulkan du core, puis "ton contexte est prêt".
-        if (!m_vulkan.create()) {
+        if (!m_vulkan.create(geometry.base_width, geometry.base_height)) {
             SDL_Log("Vulkan : %s", m_vulkan.error().c_str());
             return false;
         }
@@ -377,14 +444,23 @@ void Video::destroyHwContext()
 
 bool Video::createProgram()
 {
+#ifdef NEXO_GLES
+    const GLuint vertex = compileShader(GL_VERTEX_SHADER, gl::es2 ? kVertexShaderEs2 : kVertexShader);
+    const GLuint fragment = compileShader(GL_FRAGMENT_SHADER, gl::es2 ? kFragmentShaderEs2 : kFragmentShader);
+#else
     const GLuint vertex = compileShader(GL_VERTEX_SHADER, kVertexShader);
     const GLuint fragment = compileShader(GL_FRAGMENT_SHADER, kFragmentShader);
+#endif
     if (!vertex || !fragment)
         return false;
 
     m_program = gl::CreateProgram();
     gl::AttachShader(m_program, vertex);
     gl::AttachShader(m_program, fragment);
+#ifdef NEXO_GLES
+    if (gl::es2)
+        glBindAttribLocation(m_program, 0, "corner");
+#endif
     gl::LinkProgram(m_program);
     // Une fois liés dans le programme, les shaders séparés ne servent plus.
     gl::DeleteShader(vertex);
@@ -407,7 +483,9 @@ bool Video::createProgram()
     gl::UseProgram(0);
 
     // OpenGL "core" exige un Vertex Array Object pour dessiner, même vide.
-    gl::GenVertexArrays(1, &m_vao);
+    // (OpenGL ES 2 n'en a pas : les coins viennent alors de kCorners.)
+    if (gl::GenVertexArrays)
+        gl::GenVertexArrays(1, &m_vao);
 
     glGenTextures(1, &m_frameTexture);
     glBindTexture(GL_TEXTURE_2D, m_frameTexture);
@@ -430,8 +508,8 @@ bool Video::createFramebuffer(unsigned width, unsigned height)
     // La texture qui recevra l'image dessinée par le core.
     glGenTextures(1, &m_fboTexture);
     glBindTexture(GL_TEXTURE_2D, m_fboTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, gl::es2 ? GLint(GL_RGBA) : GLint(GL_RGBA8), static_cast<GLsizei>(width),
+                 static_cast<GLsizei>(height), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     // Image 3D souvent agrandie : un filtrage linéaire la lisse un peu.
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -448,10 +526,21 @@ bool Video::createFramebuffer(unsigned width, unsigned height)
     if (m_hw.depth) {
         gl::GenRenderbuffers(1, &m_fboDepth);
         gl::BindRenderbuffer(GL_RENDERBUFFER, m_fboDepth);
-        gl::RenderbufferStorage(GL_RENDERBUFFER, m_hw.stencil ? GL_DEPTH24_STENCIL8 : GL_DEPTH_COMPONENT24,
-                                static_cast<GLsizei>(width), static_cast<GLsizei>(height));
-        gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, m_hw.stencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT,
-                                    GL_RENDERBUFFER, m_fboDepth);
+        if (gl::es2) {
+            // OpenGL ES 2 : profondeur 16 bits, ou 24+8 avec l'extension
+            // OES_packed_depth_stencil (même valeur que GL_DEPTH24_STENCIL8),
+            // attachée deux fois (pas de GL_DEPTH_STENCIL_ATTACHMENT en ES 2).
+            gl::RenderbufferStorage(GL_RENDERBUFFER, m_hw.stencil ? GL_DEPTH24_STENCIL8 : GL_DEPTH_COMPONENT16,
+                                    static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+            gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_fboDepth);
+            if (m_hw.stencil)
+                gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_fboDepth);
+        } else {
+            gl::RenderbufferStorage(GL_RENDERBUFFER, m_hw.stencil ? GL_DEPTH24_STENCIL8 : GL_DEPTH_COMPONENT24,
+                                    static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+            gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, m_hw.stencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT,
+                                        GL_RENDERBUFFER, m_fboDepth);
+        }
         gl::BindRenderbuffer(GL_RENDERBUFFER, 0);
     }
 
@@ -509,6 +598,8 @@ void Video::setGeometry(const retro_game_geometry& geometry)
     m_aspect = geometry.aspect_ratio > 0.0f
                    ? geometry.aspect_ratio
                    : static_cast<float>(geometry.base_width) / static_cast<float>(geometry.base_height);
+    if (m_hwVulkan)
+        m_vulkan.setSurfaceSize(geometry.base_width, geometry.base_height);
 
     // Si le jeu passe à une résolution plus grande que prévu, on agrandit le
     // framebuffer prêté au core.
@@ -551,12 +642,23 @@ void Video::upload(const void* pixels, unsigned width, unsigned height, size_t p
         pixels = m_converted.data();
         pitch = size_t(width) * 2;
     }
+    if (gl::es2 && pitch != size_t(width) * fmt.bytesPerPixel) {
+        // OpenGL ES 2 n'a pas GL_UNPACK_ROW_LENGTH : les lignes doivent se
+        // suivre sans espace. On les recolle.
+        const size_t row = size_t(width) * fmt.bytesPerPixel;
+        m_packed.resize(row * height);
+        for (unsigned y = 0; y < height; ++y)
+            std::memcpy(&m_packed[y * row], static_cast<const uint8_t*>(pixels) + y * pitch, row);
+        pixels = m_packed.data();
+        pitch = row;
+    }
 #endif
     glBindTexture(GL_TEXTURE_2D, m_frameTexture);
     // pitch = nombre d'octets entre deux lignes (peut dépasser width * bpp).
     // OpenGL veut cette valeur en pixels.
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(pitch / fmt.bytesPerPixel));
+    if (!gl::es2)
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(pitch / fmt.bytesPerPixel));
 
     // La résolution peut changer en cours de jeu (menus, cinématiques...) :
     // on réalloue alors la texture, sinon on remplace juste son contenu.
@@ -571,7 +673,8 @@ void Video::upload(const void* pixels, unsigned width, unsigned height, size_t p
                         fmt.type, pixels);
     }
 
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    if (!gl::es2)
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     m_hasFrame = true;
@@ -585,9 +688,28 @@ void Video::hwFrameReady(unsigned width, unsigned height)
     if (m_hwVulkan) {
         // L'image Vulkan du core, recopiée en mémoire puis envoyée dans notre
         // texture OpenGL comme une image 2D (32 bits, sans retournement).
-        if (m_vulkan.readFrame(width, height, m_vulkanPixels)) {
+        const Uint64 t0 = SDL_GetPerformanceCounter();
+        unsigned readWidth = 0;
+        unsigned readHeight = 0;
+        const bool read = m_vulkan.readFrame(width, height, m_vulkanPixels, readWidth, readHeight);
+        const Uint64 t1 = SDL_GetPerformanceCounter();
+        if (read) {
             m_pixelFormat = RETRO_PIXEL_FORMAT_XRGB8888;
-            upload(m_vulkanPixels.data(), width, height, size_t(width) * 4);
+            upload(m_vulkanPixels.data(), readWidth, readHeight, size_t(readWidth) * 4);
+        }
+        // EMU_CORE_LOG=1 : le coût de la recopie, toutes les 300 images (tests).
+        static const bool log = SDL_getenv("EMU_CORE_LOG") != nullptr;
+        if (log) {
+            static double readMs = 0.0, uploadMs = 0.0;
+            static int frames = 0;
+            const double ms = 1000.0 / static_cast<double>(SDL_GetPerformanceFrequency());
+            readMs += static_cast<double>(t1 - t0) * ms;
+            uploadMs += static_cast<double>(SDL_GetPerformanceCounter() - t1) * ms;
+            if (++frames == 300) {
+                SDL_Log("Vulkan : recopie %.2f ms, envoi à OpenGL %.2f ms par image", readMs / frames, uploadMs / frames);
+                readMs = uploadMs = 0.0;
+                frames = 0;
+            }
         }
         return;
     }
@@ -637,15 +759,18 @@ void Video::resetGlState()
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 #else
     glDisable(GL_POLYGON_OFFSET_FILL);
-    glDisable(GL_RASTERIZER_DISCARD);
+    if (!gl::es2)
+        glDisable(GL_RASTERIZER_DISCARD);
 #endif
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     // Un "sampler" lié à l'unité 0 remplacerait les réglages de nos textures
     // (un filtrage avec mipmaps sur une texture qui n'en a pas = noir).
     gl::ActiveTexture(GL_TEXTURE0);
-    gl::BindSampler(0, 0);
+    if (gl::BindSampler)
+        gl::BindSampler(0, 0);
     // Un tampon de pixels lié détournerait nos glTexSubImage2D.
-    gl::BindBuffer(0x88EC, 0); // GL_PIXEL_UNPACK_BUFFER
+    if (!gl::es2)
+        gl::BindBuffer(0x88EC, 0); // GL_PIXEL_UNPACK_BUFFER
 }
 
 void Video::renderGame()
@@ -691,7 +816,7 @@ void Video::renderGame()
         m_gamePixels[2] = static_cast<int>(w);
         m_gamePixels[3] = static_cast<int>(h);
 
-        if (m_frameIsHw) {
+        if (m_frameIsHw && gl::BlitFramebuffer) { // (OpenGL ES 2 : pas de copie, dessin avec le shader plus bas)
             // Image dessinée par le core dans notre framebuffer : copiée
             // directement à l'écran ("blit"). Contrairement à un dessin avec
             // notre shader, une copie ne dépend presque pas des réglages
@@ -725,7 +850,8 @@ void Video::renderGame()
         }
 
         gl::UseProgram(m_program);
-        gl::BindVertexArray(m_vao);
+        if (gl::BindVertexArray)
+            gl::BindVertexArray(m_vao);
         gl::ActiveTexture(GL_TEXTURE0);
         if (m_frameIsHw) {
             // Le core n'a dessiné que dans un coin du framebuffer.
@@ -735,6 +861,9 @@ void Video::renderGame()
             // OpenGL range les lignes de bas en haut, sauf si le core dit
             // avoir dessiné à l'envers.
             gl::Uniform1f(m_flipYLocation, m_hw.bottom_left_origin ? 0.0f : 1.0f);
+#ifdef NEXO_GLES
+            gl::Uniform1f(m_swapRBLocation, 0.0f);
+#endif
         } else {
             // Les pixels logiciels arrivent ligne du haut en premier.
             glBindTexture(GL_TEXTURE_2D, m_frameTexture);
@@ -748,10 +877,23 @@ void Video::renderGame()
             gl::Uniform1f(m_swapRBLocation, m_textureFormat == RETRO_PIXEL_FORMAT_XRGB8888 ? 1.0f : 0.0f);
 #endif
         }
+#ifdef NEXO_GLES
+        if (gl::es2) {
+            // Pas de gl_VertexID en ES 2 : les coins, lus directement en mémoire.
+            gl::BindBuffer(GL_ARRAY_BUFFER, 0);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, kCorners);
+        }
+#endif
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+#ifdef NEXO_GLES
+        if (gl::es2)
+            glDisableVertexAttribArray(0);
+#endif
 
         glBindTexture(GL_TEXTURE_2D, 0);
-        gl::BindVertexArray(0);
+        if (gl::BindVertexArray)
+            gl::BindVertexArray(0);
         gl::UseProgram(0);
     }
 

@@ -43,3 +43,4 @@ android/app/.cxx/
 android/local.properties
 *.jks
 *.keystore
+IDEES*.pdf

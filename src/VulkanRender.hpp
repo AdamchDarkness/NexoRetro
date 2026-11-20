@@ -26,6 +26,8 @@
 #include <string>
 #include <vector>
 
+struct SDL_Window;
+
 class VulkanRender {
 public:
     VulkanRender() = default;
@@ -42,7 +44,10 @@ public:
         m_negotiation = negotiation;
     }
     // Crée l'instance et le device. false (avec error()) si Vulkan est absent.
-    bool create();
+    // (width x height : la taille d'image annoncée par le core.)
+    bool create(unsigned width, unsigned height);
+    // Le core annonce une nouvelle taille d'image : la surface la suit.
+    void setSurfaceSize(unsigned width, unsigned height);
     void destroy();
     bool ready() const { return m_device != VK_NULL_HANDLE; }
     const std::string& error() const { return m_error; }
@@ -51,9 +56,15 @@ public:
     // Ce que GET_HW_RENDER_INTERFACE donne au core.
     retro_hw_render_interface_vulkan* interface() { return ready() ? &m_interface : nullptr; }
 
-    // Recopie la dernière image confiée par le core, au format XRGB8888
-    // (octets B, G, R, X : celui des cores 2D en 32 bits).
-    bool readFrame(unsigned width, unsigned height, std::vector<uint32_t>& pixels);
+    // Demande la recopie de l'image que le core vient de confier, et donne
+    // celle de l'image d'avant, arrivée entre-temps (format XRGB8888 : octets
+    // B, G, R, X, celui des cores 2D en 32 bits). Attendre la carte graphique
+    // sur place coûtait 5 à 16 ms par image, pendant lesquelles le jeu ne
+    // calculait rien : PS2 et GameCube n'atteignaient pas leur vitesse.
+    // L'image affichée a donc une image de retard (17 ms).
+    // false : pas encore d'image (la toute première fois).
+    bool readFrame(unsigned width, unsigned height, std::vector<uint32_t>& pixels, unsigned& outWidth,
+                   unsigned& outHeight);
 
 private:
     // Callbacks donnés au core (handle = this).
@@ -71,8 +82,13 @@ private:
     static VkDevice createDeviceWrapper(VkPhysicalDevice gpu, void* opaque, const VkDeviceCreateInfo* info);
 
     bool loadLibrary();
+    void createSurfaceWindow(unsigned width, unsigned height);
+    // Les extensions demandées, plus celles de la surface (sans doublon).
+    std::vector<const char*> withSurfaceExtensions(const char* const* names, uint32_t count) const;
     bool createDefaultDevice();
     bool ensureStaging(VkDeviceSize size);
+    // Récupère la recopie demandée à l'image précédente (s'il y en a une).
+    bool collect(std::vector<uint32_t>& pixels, unsigned& outWidth, unsigned& outHeight);
     uint32_t memoryType(uint32_t bits, VkMemoryPropertyFlags flags) const;
 
     const retro_hw_render_context_negotiation_interface_vulkan* m_negotiation = nullptr;
@@ -82,6 +98,13 @@ private:
 
     void* m_library = nullptr; // vulkan-1.dll (Windows) ou libvulkan.so (Android)
     VkInstance m_instance = VK_NULL_HANDLE;
+    // Une "surface" : l'endroit où Vulkan afficherait ses images. Nous
+    // n'affichons rien avec Vulkan (voir plus haut), mais certains cores
+    // (Dolphin) ne dessinent rien si on ne leur en donne pas une vraie.
+    // Elle vient d'une petite fenêtre qui reste cachée.
+    SDL_Window* m_surfaceWindow = nullptr;
+    VkSurfaceKHR m_surface = VK_NULL_HANDLE;
+    std::vector<const char*> m_surfaceExtensions;
     VkPhysicalDevice m_gpu = VK_NULL_HANDLE;
     VkDevice m_device = VK_NULL_HANDLE;
     VkQueue m_queue = VK_NULL_HANDLE;
@@ -136,6 +159,11 @@ private:
 
     // Ce que le core nous a confié pour l'image en cours.
     bool m_hasImage = false;
+    // La recopie en cours : sa taille et son format de couleurs.
+    bool m_pending = false;
+    unsigned m_pendingWidth = 0;
+    unsigned m_pendingHeight = 0;
+    VkFormat m_pendingFormat = VK_FORMAT_UNDEFINED;
     retro_vulkan_image m_image{};
     uint32_t m_imageQueueFamily = VK_QUEUE_FAMILY_IGNORED;
     std::vector<VkSemaphore> m_waitSemaphores;

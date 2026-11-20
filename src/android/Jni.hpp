@@ -41,6 +41,9 @@ bool isTv();
 // L'accès à tous les fichiers (pour lire les jeux rangés n'importe où).
 bool hasAllFilesAccess();
 void requestAllFilesAccess();
+// Recopie un document choisi dans le sélecteur d'Android ("content://...")
+// dans destDir ; renvoie le chemin de la copie (vide en cas d'échec).
+std::filesystem::path copyDocument(const std::string& uri, const std::filesystem::path& destDir);
 // Recopie les fichiers de l'APK (assets/) dans le stockage privé, une fois par version.
 void prepareAssets(const char* version);
 

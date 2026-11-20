@@ -63,5 +63,8 @@ private:
     Uint64 m_underrunWindow = 0;
     int m_underruns = 0;
     double target() const { return std::max(m_baseTarget, m_minimum) + m_extra; }
+    void fill(double seconds); // ajoute ce temps de silence à la file
+    bool m_prime = true;       // file neuve : à remplir jusqu'au tampon visé
+    size_t m_pushed = 0;       // son ajouté depuis le dernier regulate()
     float m_gain = 1.0f;
 };

@@ -88,6 +88,24 @@ fs::path privateDir()
     return dir ? fromUtf8(dir) : fs::path();
 }
 
+fs::path copyDocument(const std::string& uri, const fs::path& destDir)
+{
+    JNIEnv* e = env();
+    jmethodID m = e->GetStaticMethodID(bridge(), "copyDocument", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+    if (!m)
+        return {};
+    jstring juri = toJava(uri);
+    jstring jdir = toJava(toUtf8(destDir));
+    auto* copied = static_cast<jstring>(e->CallStaticObjectMethod(bridge(), m, juri, jdir));
+    e->DeleteLocalRef(juri);
+    e->DeleteLocalRef(jdir);
+    if (!copied)
+        return {};
+    const std::string path = fromJava(copied);
+    e->DeleteLocalRef(copied);
+    return fromUtf8(path);
+}
+
 fs::path dataDir()
 {
     // /sdcard/NexoRetro : l'utilisateur y dépose ses jeux et ses BIOS avec

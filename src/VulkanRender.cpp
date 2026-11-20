@@ -1,6 +1,7 @@
 #include "VulkanRender.hpp"
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 
 #include <algorithm>
 #include <cstring>
@@ -59,9 +60,55 @@ VkInstance VulkanRender::createInstanceWrapper(void* opaque, const VkInstanceCre
     // Le core a préparé sa demande (extensions...) ; c'est nous qui créons.
     auto* self = static_cast<VulkanRender*>(opaque);
     VkInstance instance = VK_NULL_HANDLE;
+    // (On y ajoute les extensions de notre surface.)
+    VkInstanceCreateInfo copy = *info;
+    const std::vector<const char*> names = self->withSurfaceExtensions(info->ppEnabledExtensionNames, info->enabledExtensionCount);
+    copy.enabledExtensionCount = static_cast<uint32_t>(names.size());
+    copy.ppEnabledExtensionNames = names.data();
+    if (self->vkCreateInstance(&copy, nullptr, &instance) == VK_SUCCESS)
+        return instance;
+    // Refusé : sans surface, comme le core l'a demandé.
+    self->m_surfaceExtensions.clear();
     if (self->vkCreateInstance(info, nullptr, &instance) != VK_SUCCESS)
         return VK_NULL_HANDLE;
     return instance;
+}
+
+std::vector<const char*> VulkanRender::withSurfaceExtensions(const char* const* names, uint32_t count) const
+{
+    std::vector<const char*> all(names, names + count);
+    for (const char* wanted : m_surfaceExtensions)
+        if (std::none_of(all.begin(), all.end(), [wanted](const char* name) { return std::strcmp(name, wanted) == 0; }))
+            all.push_back(wanted);
+    return all;
+}
+
+void VulkanRender::setSurfaceSize(unsigned width, unsigned height)
+{
+    // Une surface a la taille de sa fenêtre, et Dolphin dessine à la taille
+    // de la surface : la fenêtre cachée prend donc la taille de l'image.
+    if (m_surfaceWindow && width > 0 && height > 0)
+        SDL_SetWindowSize(m_surfaceWindow, static_cast<int>(width), static_cast<int>(height));
+}
+
+void VulkanRender::createSurfaceWindow(unsigned width, unsigned height)
+{
+    m_surfaceExtensions.clear();
+#ifndef __ANDROID__ // (Android n'a qu'une fenêtre, déjà prise par OpenGL ES)
+    if (!m_surfaceWindow)
+        m_surfaceWindow = SDL_CreateWindow("Nexo Retro (Vulkan)", static_cast<int>(width > 0 ? width : 640),
+                                           static_cast<int>(height > 0 ? height : 480),
+                                           SDL_WINDOW_VULKAN | SDL_WINDOW_HIDDEN | SDL_WINDOW_BORDERLESS);
+    if (!m_surfaceWindow) {
+        SDL_Log("Vulkan : pas de surface (%s)", SDL_GetError());
+        return;
+    }
+    // Ce qu'il faut activer dans l'instance pour créer une surface
+    // (VK_KHR_surface et VK_KHR_win32_surface sous Windows).
+    Uint32 count = 0;
+    if (const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count))
+        m_surfaceExtensions.assign(names, names + count);
+#endif
 }
 
 VkDevice VulkanRender::createDeviceWrapper(VkPhysicalDevice gpu, void* opaque, const VkDeviceCreateInfo* info)
@@ -75,7 +122,7 @@ VkDevice VulkanRender::createDeviceWrapper(VkPhysicalDevice gpu, void* opaque, c
 
 // --- Création ----------------------------------------------------------------------------------
 
-bool VulkanRender::create()
+bool VulkanRender::create(unsigned width, unsigned height)
 {
     destroy();
     if (!loadLibrary())
@@ -86,18 +133,23 @@ bool VulkanRender::create()
     if (!app)
         app = &kAppInfo;
 
-    // 1. L'instance : la porte d'entrée de Vulkan.
+    // 1. L'instance : la porte d'entrée de Vulkan (avec de quoi créer une
+    //    surface, voir m_surface).
+    createSurfaceWindow(width, height);
     if (v2 && m_negotiation->create_instance) {
         m_instance = m_negotiation->create_instance(vkGetInstanceProcAddr, app, &createInstanceWrapper, this);
     } else {
         VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
         info.pApplicationInfo = app;
-        if (vkCreateInstance(&info, nullptr, &m_instance) != VK_SUCCESS)
-            m_instance = VK_NULL_HANDLE;
+        m_instance = createInstanceWrapper(this, &info);
     }
     if (!m_instance) {
         m_error = "Création de l'instance Vulkan impossible";
         return false;
+    }
+    if (!m_surfaceExtensions.empty() && !SDL_Vulkan_CreateSurface(m_surfaceWindow, m_instance, nullptr, &m_surface)) {
+        SDL_Log("Vulkan : pas de surface (%s)", SDL_GetError());
+        m_surface = VK_NULL_HANDLE;
     }
     // Les fonctions "d'instance", maintenant qu'on en a une.
 #define LOAD_INSTANCE(name) name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(m_instance, #name))
@@ -135,10 +187,10 @@ bool VulkanRender::create()
     retro_vulkan_context context{};
     bool created = false;
     if (v2 && m_negotiation->create_device2)
-        created = m_negotiation->create_device2(&context, m_instance, m_gpu, VK_NULL_HANDLE, vkGetInstanceProcAddr,
+        created = m_negotiation->create_device2(&context, m_instance, m_gpu, m_surface, vkGetInstanceProcAddr,
                                                 &createDeviceWrapper, this);
     else if (m_negotiation && m_negotiation->create_device)
-        created = m_negotiation->create_device(&context, m_instance, m_gpu, VK_NULL_HANDLE, vkGetInstanceProcAddr, nullptr,
+        created = m_negotiation->create_device(&context, m_instance, m_gpu, m_surface, vkGetInstanceProcAddr, nullptr,
                                                0, nullptr, 0, nullptr);
     if (created) {
         m_negotiatedDevice = true;
@@ -280,8 +332,14 @@ void VulkanRender::destroy()
         m_negotiation->destroy_device();
     if (m_device)
         vkDestroyDevice(m_device, nullptr);
+    if (m_instance && m_surface)
+        SDL_Vulkan_DestroySurface(m_instance, m_surface, nullptr);
+    m_surface = VK_NULL_HANDLE;
     if (m_instance && vkDestroyInstance)
         vkDestroyInstance(m_instance, nullptr);
+    if (m_surfaceWindow)
+        SDL_DestroyWindow(m_surfaceWindow);
+    m_surfaceWindow = nullptr;
     m_stagingMap = nullptr;
     m_staging = VK_NULL_HANDLE;
     m_stagingMemory = VK_NULL_HANDLE;
@@ -295,6 +353,7 @@ void VulkanRender::destroy()
     m_queue = VK_NULL_HANDLE;
     m_negotiatedDevice = false;
     m_hasImage = false;
+    m_pending = false;
     m_waitSemaphores.clear();
     m_coreCommands.clear();
     m_signalSemaphore = VK_NULL_HANDLE;
@@ -401,14 +460,58 @@ bool VulkanRender::ensureStaging(VkDeviceSize size)
     return true;
 }
 
-bool VulkanRender::readFrame(unsigned width, unsigned height, std::vector<uint32_t>& pixels)
+bool VulkanRender::collect(std::vector<uint32_t>& pixels, unsigned& outWidth, unsigned& outHeight)
 {
+    if (!m_pending)
+        return false;
+    m_pending = false;
+    // (Presque toujours déjà finie : le jeu a calculé une image entière
+    // depuis qu'on l'a demandée.)
+    vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, UINT64_MAX);
+    outWidth = m_pendingWidth;
+    outHeight = m_pendingHeight;
+
+    // Les pixels sont arrivés dans le tampon. Vulkan range souvent ses
+    // couleurs en B,G,R,A (comme nous) ; sinon en R,G,B,A : on inverse.
+    const size_t count = size_t(m_pendingWidth) * m_pendingHeight;
+    pixels.resize(count);
+    std::memcpy(pixels.data(), m_stagingMap, count * 4);
+    const VkFormat format = m_pendingFormat;
+    const bool bgra = format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
+    const bool rgba = format == VK_FORMAT_R8G8B8A8_UNORM || format == VK_FORMAT_R8G8B8A8_SRGB ||
+                      format == VK_FORMAT_A8B8G8R8_UNORM_PACK32 || format == VK_FORMAT_A8B8G8R8_SRGB_PACK32;
+    // 10 bits par couleur (Dolphin, quand la carte le propose) : on garde
+    // les 8 bits de poids fort de chacune.
+    const bool rgb10 = format == VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+    const bool bgr10 = format == VK_FORMAT_A2R10G10B10_UNORM_PACK32;
+    if (rgb10)
+        for (uint32_t& p : pixels)
+            p = 0xFF000000u | (((p >> 2) & 0xFFu) << 16) | (((p >> 12) & 0xFFu) << 8) | ((p >> 22) & 0xFFu);
+    if (bgr10)
+        for (uint32_t& p : pixels)
+            p = 0xFF000000u | (((p >> 22) & 0xFFu) << 16) | (((p >> 12) & 0xFFu) << 8) | ((p >> 2) & 0xFFu);
+    if (!bgra && !rgba && !rgb10 && !bgr10 && !m_warnedFormat) {
+        SDL_Log("Vulkan : format d'image %d non prévu, couleurs peut-être fausses", static_cast<int>(format));
+        m_warnedFormat = true;
+    }
+    if (rgba)
+        for (uint32_t& p : pixels)
+            p = (p & 0xFF00FF00u) | ((p >> 16) & 0xFFu) | ((p & 0xFFu) << 16);
+    return true;
+}
+
+bool VulkanRender::readFrame(unsigned width, unsigned height, std::vector<uint32_t>& pixels, unsigned& outWidth,
+                             unsigned& outHeight)
+{
+    // D'abord l'image d'avant : sa recopie occupe le tampon et la commande
+    // dont on a besoin pour demander la suivante.
+    const bool have = ready() && collect(pixels, outWidth, outHeight);
     if (!ready() || !m_hasImage || width == 0 || height == 0) {
         if (!m_warnedNoImage) {
             SDL_Log("Vulkan : image annoncée (%ux%u) mais aucune image confiée par le core", width, height);
             m_warnedNoImage = true;
         }
-        return false;
+        return have;
     }
     if (!m_loggedFirst) {
         SDL_Log("Vulkan : première image %ux%u, format %d, disposition %d", width, height,
@@ -418,7 +521,7 @@ bool VulkanRender::readFrame(unsigned width, unsigned height, std::vector<uint32
     const VkImage image = m_image.create_info.image;
     const VkDeviceSize size = VkDeviceSize(width) * height * 4;
     if (!ensureStaging(size))
-        return false;
+        return have;
 
     // Les commandes : passer l'image en "source de copie", la copier dans le
     // tampon, puis la remettre dans l'état où le core l'a laissée.
@@ -484,23 +587,11 @@ bool VulkanRender::readFrame(unsigned width, unsigned height, std::vector<uint32
     m_coreCommands.clear();
     m_signalSemaphore = VK_NULL_HANDLE;
     if (result != VK_SUCCESS)
-        return false;
-    vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, UINT64_MAX);
-
-    // Les pixels sont arrivés dans le tampon. Vulkan range souvent ses
-    // couleurs en B,G,R,A (comme nous) ; sinon en R,G,B,A : on inverse.
-    pixels.resize(size_t(width) * height);
-    std::memcpy(pixels.data(), m_stagingMap, size_t(size));
-    const VkFormat format = m_image.create_info.format;
-    const bool bgra = format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
-    const bool rgba = format == VK_FORMAT_R8G8B8A8_UNORM || format == VK_FORMAT_R8G8B8A8_SRGB ||
-                      format == VK_FORMAT_A8B8G8R8_UNORM_PACK32 || format == VK_FORMAT_A8B8G8R8_SRGB_PACK32;
-    if (!bgra && !rgba && !m_warnedFormat) {
-        SDL_Log("Vulkan : format d'image %d non prévu, couleurs peut-être fausses", static_cast<int>(format));
-        m_warnedFormat = true;
-    }
-    if (rgba)
-        for (uint32_t& p : pixels)
-            p = (p & 0xFF00FF00u) | ((p >> 16) & 0xFFu) | ((p & 0xFFu) << 16);
-    return true;
+        return have;
+    // On n'attend pas : cette recopie sera récupérée à l'image suivante.
+    m_pending = true;
+    m_pendingWidth = width;
+    m_pendingHeight = height;
+    m_pendingFormat = m_image.create_info.format;
+    return have;
 }

@@ -343,7 +343,10 @@ void Shell::onDialogResult(UiContext& ctx, const DialogResult& result)
         if (!game)
             break;
         const fs::path source = result.paths.front();
-        const fs::path target = gameSaveFile(ctx, *game);
+        // (PS2 : c'est le fichier de la carte mémoire qu'on remplace.)
+        MemoryCard card;
+        const bool cardFile = memoryCardOf(ctx, *game, card) && !card.file.empty();
+        const fs::path target = cardFile ? card.file : gameSaveFile(ctx, *game);
         std::error_code ec;
         if (fs::equivalent(source, target, ec))
             break;

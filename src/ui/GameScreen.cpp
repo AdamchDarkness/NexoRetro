@@ -75,10 +75,13 @@ bool stateCard(const char* id, const char* name, long long time, float width)
 // ouvre la fenêtre pour la voir, la remplacer ou la supprimer.
 bool saveCard(const UiContext& ctx, const Game& game, float width)
 {
+    // PS2, GameCube, Wii : la carte mémoire du core, pas un .srm.
+    MemoryCard card;
+    const bool hasCard = memoryCardOf(ctx, game, card);
     const fs::path file = gameSaveFile(ctx, game);
-    const long long time = fileTime(file);
+    const long long time = hasCard ? card.time : fileTime(file);
     std::error_code ec;
-    const std::uintmax_t size = time > 0 ? fs::file_size(file, ec) : 0;
+    const std::uintmax_t size = hasCard ? card.size : time > 0 ? fs::file_size(file, ec) : 0;
     const bool clicked = ImGui::InvisibleButton("##gameSave", ImVec2(width, px(150.0f)), ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     if (hovered)
@@ -95,7 +98,8 @@ bool saveCard(const UiContext& ctx, const Game& game, float width)
     const ImVec2 ts = draw::measure(Weight::ExtraBold, 18.0f, big);
     draw::text(dl, ImVec2((thumbMin.x + thumbMax.x - ts.x) / 2, (thumbMin.y + thumbMax.y - ts.y) / 2), Weight::ExtraBold, 18.0f,
                time > 0 ? theme::Accent : theme::Muted, big);
-    draw::text(dl, ImVec2(min.x + px(12.0f), min.y + px(108.0f)), Weight::Bold, 13.0f, theme::Ink, "Sauvegarde du jeu");
+    draw::text(dl, ImVec2(min.x + px(12.0f), min.y + px(108.0f)), Weight::Bold, 13.0f, theme::Ink,
+               hasCard ? card.title : "Sauvegarde du jeu");
     draw::text(dl, ImVec2(min.x + px(12.0f), min.y + px(126.0f)), Weight::Medium, 12.0f, theme::Muted,
                time > 0 ? formatAgo(time) : "Créée quand le jeu sauvegarde");
     return clicked;
@@ -809,22 +813,27 @@ void GameScreen::drawSaveManager(UiContext& ctx, const Game& game)
     if (!beginModal("##gameSave", 620.0f))
         return;
     const float width = ImGui::GetContentRegionAvail().x;
-    if (modalHeader("Sauvegarde du jeu", game.title + " · " + game.system->name, width))
+    // PS2, GameCube, Wii : la carte mémoire que le core tient lui-même.
+    MemoryCard card;
+    const bool hasCard = memoryCardOf(ctx, game, card);
+    if (modalHeader(hasCard ? card.title : "Sauvegarde du jeu", game.title + " · " + game.system->name, width))
         ImGui::CloseCurrentPopup();
     space(6.0f);
-    textWrapped("Votre progression, enregistrée quand vous sauvegardez DANS le jeu (comme la pile d'une vraie "
-                "cartouche ou une carte mémoire). Elle est chargée à chaque lancement avec « Jouer ».",
+    textWrapped(hasCard ? card.note
+                        : "Votre progression, enregistrée quand vous sauvegardez DANS le jeu (comme la pile d'une vraie "
+                          "cartouche ou une carte mémoire). Elle est chargée à chaque lancement avec « Jouer ».",
                 14.0f, Weight::Medium, theme::Body, width);
     space(8.0f);
 
     // Le fichier : où il est, sa date, sa taille.
-    const fs::path file = gameSaveFile(ctx, game);
-    const long long time = fileTime(file);
+    const fs::path file = !hasCard ? gameSaveFile(ctx, game) : card.file.empty() ? card.folder : card.file;
+    const long long time = hasCard ? card.time : fileTime(file);
     std::error_code ec;
     beginCard("##saveFile", ImVec2(width, px(96.0f)), 16.0f, theme::Ground, 16.0f);
     const float inner = ImGui::GetContentRegionAvail().x;
     if (time > 0) {
-        text("Modifiée " + formatAgo(time) + "  ·  " + formatSize(fs::file_size(file, ec)), 15.0f, Weight::Bold);
+        text("Modifiée " + formatAgo(time) + "  ·  " + formatSize(hasCard ? card.size : fs::file_size(file, ec)), 15.0f,
+             Weight::Bold);
     } else {
         text("Pas encore de sauvegarde", 15.0f, Weight::Bold);
         textWrapped("Elle sera créée la première fois que vous sauvegarderez dans le jeu.", 13.0f, Weight::Medium,
@@ -834,12 +843,30 @@ void GameScreen::drawSaveManager(UiContext& ctx, const Game& game)
     endCard();
     space(8.0f);
 
-    // Les actions.
-    if (button("Remplacer par un fichier…", {.style = ButtonStyle::Primary, .icon = draw::Icon::Upload}))
-        ctx.openDialog(DialogPurpose::ImportSave); // la suite : Shell::onDialogResult
-    sameLine();
+    // Les actions. Une carte en dossier (GameCube, Wii) ne se remplace pas
+    // d'un fichier, et une carte partagée ne se supprime pas d'ici : elle
+    // contient les sauvegardes des autres jeux.
+    if (!hasCard || !card.file.empty()) {
+        if (button("Remplacer par un fichier…", {.style = ButtonStyle::Primary, .icon = draw::Icon::Upload}))
+            ctx.openDialog(DialogPurpose::ImportSave); // la suite : Shell::onDialogResult
+        sameLine();
+    }
     if (button("Ouvrir le dossier", {.style = ButtonStyle::Outline, .icon = draw::Icon::Folder}))
-        openFolder(gameSaveDir(ctx, game));
+        openFolder(hasCard ? card.folder : gameSaveDir(ctx, game));
+    if (hasCard) {
+        space(8.0f);
+        textWrapped(card.file.empty()
+                        ? "Pour reprendre les sauvegardes d'un autre émulateur (Dolphin), copiez ses fichiers dans ce dossier."
+                        : "Les cartes .ps2 de PCSX2 marchent aussi. L'ancienne carte part à la Corbeille de Windows : on "
+                          "peut la récupérer. Attention : elle contient les sauvegardes de tous vos jeux PS2.",
+                    12.0f, Weight::Medium, theme::Muted, width);
+        space(2.0f);
+        textWrapped("Attention : une sauvegarde d'état (automatique ou F2) contient l'ancienne progression. Après un "
+                    "remplacement, lancez le jeu avec « Jouer ».",
+                    12.0f, Weight::SemiBold, theme::Warning, width);
+        endModal();
+        return;
+    }
     if (time > 0) {
         sameLine();
         if (button("Supprimer##save", {.style = ButtonStyle::Ghost, .icon = draw::Icon::Trash})) {

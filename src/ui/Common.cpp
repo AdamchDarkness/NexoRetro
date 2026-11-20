@@ -11,11 +11,13 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <cstdio>
 #include <ctime>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <system_error>
 #include <vector>
@@ -78,6 +80,70 @@ fs::path quickStateFile(const UiContext& ctx, const Game& game)
 fs::path gameSaveFile(const UiContext& ctx, const Game& game)
 {
     return saveFilesFor(ctx.dir("saves"), toUtf8(game.path.stem())).sram;
+}
+
+bool memoryCardOf(const UiContext& ctx, const Game& game, MemoryCard& card)
+{
+    card = {};
+    const std::string_view id = game.system->id;
+    // Quels fichiers comptent, dans le dossier de la carte.
+    bool (*wanted)(const fs::path&) = [](const fs::path&) { return true; };
+    if (id == "ps2") {
+        // PCSX2 : bios/pcsx2/memcards/Mcd001.ps2 (emplacement 1).
+        card.folder = ctx.dir("bios") / "pcsx2" / "memcards";
+        card.file = card.folder / "Mcd001.ps2";
+        card.title = "Carte mémoire PS2";
+        card.note = "Une carte mémoire de 8 Mo, la même pour tous vos jeux PS2 (comme sur la vraie console). Elle est "
+                    "créée au premier lancement d'un jeu PS2 ; le jeu y enregistre quand vous sauvegardez.";
+    } else if (id == "gc") {
+        // Dolphin : saves/User/GC/<région>/Card A/*.gci (un fichier par jeu).
+        card.folder = ctx.dir("saves") / "User" / "GC";
+        card.title = "Carte mémoire GameCube";
+        card.note = "La carte mémoire de l'emplacement A, la même pour tous vos jeux GameCube : un fichier .gci par "
+                    "jeu, rangé par région (USA, EUR, JAP). Le jeu y enregistre quand vous sauvegardez.";
+        wanted = [](const fs::path& file) {
+            return file.extension() == ".gci" || toUtf8(file.filename()).starts_with("MemoryCard");
+        };
+    } else if (id == "wii") {
+        // Dolphin : la mémoire interne de la Wii, un dossier par jeu.
+        card.folder = ctx.dir("saves") / "User" / "Wii" / "title" / "00010000";
+        card.title = "Mémoire de la Wii";
+        card.note = "Les jeux Wii enregistrent dans la mémoire interne de la console : un dossier par jeu. Le jeu y "
+                    "enregistre quand vous sauvegardez.";
+    } else {
+        return false;
+    }
+    // Parcourir un dossier à chaque image coûterait cher : le résultat est
+    // gardé deux secondes.
+    struct Status {
+        Uint64 checked = 0;
+        long long time = 0;
+        std::uintmax_t size = 0;
+    };
+    static std::map<fs::path, Status> cache;
+    const fs::path& key = card.file.empty() ? card.folder : card.file;
+    Status& status = cache[key];
+    const Uint64 now = SDL_GetTicks();
+    if (status.checked == 0 || now - status.checked > 2000) {
+        status = {};
+        status.checked = now ? now : 1;
+        std::error_code ec;
+        if (!card.file.empty()) {
+            status.time = fileTime(card.file);
+            status.size = status.time > 0 ? fs::file_size(card.file, ec) : 0;
+        } else {
+            for (fs::recursive_directory_iterator it(card.folder, fs::directory_options::skip_permission_denied, ec), end;
+                 !ec && it != end; it.increment(ec)) {
+                if (!it->is_regular_file(ec) || !wanted(it->path()))
+                    continue;
+                status.time = std::max(status.time, fileTime(it->path()));
+                status.size += it->file_size(ec);
+            }
+        }
+    }
+    card.time = status.time;
+    card.size = status.size;
+    return true;
 }
 
 fs::path cheatsFile(const UiContext& ctx, const Game& game)

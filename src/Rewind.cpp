@@ -2,6 +2,8 @@
 
 #include "StateDelta.hpp"
 
+#include <utility>
+
 // (La compression des différences est dans StateDelta.hpp.)
 using statedelta::applyXor;
 using statedelta::encodeXor;
@@ -13,19 +15,19 @@ void Rewind::reset()
     m_bytes = 0;
 }
 
-void Rewind::push(const std::string& state)
+void Rewind::push(std::string state)
 {
     // Taille différente (rare : changement de mode du core) : on repart de zéro.
     if (m_current.size() != state.size()) {
         reset();
-        m_current = state;
+        m_current = std::move(state);
         return;
     }
     // La différence nous ramène de "state" à la photo d'avant (m_current).
     m_deltas.push_back(encodeXor(state, m_current));
     m_bytes += m_deltas.back().size();
     ++m_newest;
-    m_current = state;
+    m_current = std::move(state);
     // Mémoire pleine : on oublie le passé le plus lointain.
     while (m_bytes > m_budget && !m_deltas.empty()) {
         m_bytes -= m_deltas.front().size();

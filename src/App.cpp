@@ -27,6 +27,7 @@
 #include <imgui.h>
 #include <stb_image.h> // (l'implémentation est dans ui/Covers.cpp)
 
+#include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <fstream>
@@ -597,7 +598,12 @@ int App::run()
                 // Une image en arrière : la photo précédente, puis une image
                 // calculée sans le son, pour l'afficher.
                 std::string previous;
-                if (m_rewind.pop(previous) && m_core->unserialize(previous)) {
+                if (m_rewindInterval > 1 && m_gameLoops % static_cast<unsigned>(m_rewindInterval) != 0 &&
+                    previousMode == TimeMode::Rewinding) {
+                    // Photos espacées : on attend, pour remonter le temps à
+                    // la vitesse du jeu et pas N fois plus vite.
+                    m_timeMode = TimeMode::Rewinding;
+                } else if (m_rewind.pop(previous) && m_core->unserialize(previous)) {
                     m_audio.setMuted(true);
                     m_core->runFrame();
                     m_audio.setMuted(false);
@@ -1773,13 +1779,14 @@ bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::pa
 
     auto core = std::make_unique<Core>(m_video, m_audio, m_input);
     core->setNetplay(netplay);
-    // Vulkan si l'utilisateur le préfère, et d'office pour PCSX2 : en OpenGL,
-    // il compile ses effets en plein jeu, et les pilotes AMD figent alors
-    // l'image un instant (saccades). L'équipe de PCSX2 conseille Vulkan.
-    // Dolphin, lui, reste en OpenGL : en Vulkan, il ne nous envoie aucune image.
+    // Vulkan si l'utilisateur le préfère, et d'office pour PCSX2 et Dolphin :
+    // en OpenGL, ils compilent leurs effets en plein jeu, et les pilotes AMD
+    // figent alors l'image un instant (saccades). Sous Windows, Dolphin ne
+    // sait même pas les compiler en arrière-plan en OpenGL ("Failed to
+    // create shared context") ; en Vulkan, si.
     const bool pcsx2 = corePath.stem() == "pcsx2_libretro";
     const bool dolphin = corePath.stem() == "dolphin_libretro";
-    core->setPreferVulkan((m_settings.preferVulkan || pcsx2) && !dolphin && VulkanRender::available());
+    core->setPreferVulkan((m_settings.preferVulkan || pcsx2 || dolphin) && VulkanRender::available());
     // Les options de l'utilisateur, plus celles imposées pour cette partie
     // (câble link : réglages réseau de Gambatte).
     std::map<std::string, std::string> options = readCoreOptions(dir("core-options.txt"));
@@ -1850,6 +1857,9 @@ bool App::launch(const fs::path& corePath, const fs::path& romPath, const fs::pa
     m_rewind.reset();
     clearRewindThumbnails();
     m_rewindUsable = true;
+    m_rewindInterval = 1;
+    m_rewindCostMs = 0.0;
+    m_rewindTick = 0;
     m_gameLoops = 0;
     // Le dossier de sauvegarde du jeu : saves/<nom>/ (créé au besoin).
     const SaveFiles files = saveFilesFor(dir("saves"), stem);
@@ -2234,9 +2244,37 @@ void App::captureRewind()
         SDL_Log("Retour en arrière désactivé : état de %zu Mo", m_core->stateSize() / (1024 * 1024));
         return;
     }
+    // Une photo toutes les m_rewindInterval images seulement.
+    if (m_rewindTick++ % static_cast<uint64_t>(m_rewindInterval) != 0)
+        return;
+    const Uint64 started = SDL_GetPerformanceCounter();
     std::string state;
     if (m_core->serialize(state))
-        m_rewind.push(state);
+        m_rewind.push(std::move(state));
+    // Photographier ne doit pas ralentir le jeu. Sur certaines machines
+    // (carte d'arcade CPS3 : Street Fighter III), une photo prenait plus de
+    // la moitié du temps d'une image : le jeu tombait à 40 images/s et le
+    // son hachait. On mesure donc le coût d'une photo, et on les espace pour
+    // qu'elles ne prennent jamais plus de 10 % du temps (le retour en
+    // arrière remonte alors par pas de N images, à la même vitesse).
+    const double ms = static_cast<double>(SDL_GetPerformanceCounter() - started) * 1000.0 /
+                      static_cast<double>(SDL_GetPerformanceFrequency());
+    m_rewindCostMs = m_rewindCostMs == 0.0 ? ms : m_rewindCostMs * 0.95 + ms * 0.05;
+    if (m_rewindTick < 30)
+        return; // (les premières photos, à froid, ne comptent pas)
+    const double fps = std::max(1.0, m_core->avInfo().timing.fps);
+    const double budget = 0.10 * 1000.0 / fps;
+    const int wanted = static_cast<int>(std::ceil(m_rewindCostMs / budget));
+    constexpr int kMaxInterval = 30;
+    if (wanted > kMaxInterval) {
+        m_rewindUsable = false;
+        m_rewind.reset();
+        SDL_Log("Retour en arrière désactivé : une photo prend %.1f ms", m_rewindCostMs);
+    } else if (wanted > m_rewindInterval) {
+        // (On ne resserre jamais : l'échelle de temps de la frise serait fausse.)
+        m_rewindInterval = wanted;
+        SDL_Log("Retour en arrière : une photo prend %.1f ms, une toutes les %d images", m_rewindCostMs, wanted);
+    }
 }
 
 // --- Speedrun ------------------------------------------------------------------------------
@@ -2509,7 +2547,7 @@ void App::captureRewindThumbnail()
     }
     // Une miniature par seconde de jeu.
     const double fps = m_core ? std::max(1.0, m_core->avInfo().timing.fps) : 60.0;
-    if (!m_rewindThumbs.empty() && static_cast<double>(m_rewind.newest() - m_rewindThumbs.back().index) < fps)
+    if (!m_rewindThumbs.empty() && static_cast<double>(m_rewind.newest() - m_rewindThumbs.back().index) * m_rewindInterval < fps)
         return;
     int w = 0;
     int h = 0;
@@ -2593,7 +2631,7 @@ void App::drawRewindTimeline()
     dl->AddLine(ImVec2(trackL, trackY), ImVec2(xOf(now), trackY), IM_COL32(110, 140, 255, 255), px(4.0f));
     dl->AddCircleFilled(ImVec2(xOf(now), trackY), px(7.0f), IM_COL32_WHITE, 20);
     char label[64];
-    std::snprintf(label, sizeof(label), "-%.1f s", static_cast<double>(from - now) / fps);
+    std::snprintf(label, sizeof(label), "-%.1f s", static_cast<double>(from - now) * m_rewindInterval / fps);
     const ImVec2 ls = draw::measure(Weight::ExtraBold, 13.0f, label);
     float lx = std::clamp(xOf(now) - ls.x / 2, min.x + px(8.0f), max.x - px(8.0f) - ls.x);
     draw::text(dl, ImVec2(lx, min.y + px(12.0f) + thumbH - ls.y - px(4.0f)), Weight::ExtraBold, 13.0f, IM_COL32_WHITE, label);

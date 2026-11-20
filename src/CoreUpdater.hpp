@@ -35,6 +35,8 @@ namespace buildbot {
 
 #if defined(__ANDROID__) && defined(__aarch64__)
 inline constexpr const char* kCoresUrl = "https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/";
+#elif defined(__ANDROID__) && defined(__arm__)
+inline constexpr const char* kCoresUrl = "https://buildbot.libretro.com/nightly/android/latest/armeabi-v7a/"; // (boîtiers TV 32 bits : Mi Box...)
 #elif defined(__ANDROID__) && defined(__x86_64__)
 inline constexpr const char* kCoresUrl = "https://buildbot.libretro.com/nightly/android/latest/x86_64/"; // (émulateur Android du PC)
 #else

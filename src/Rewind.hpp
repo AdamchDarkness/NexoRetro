@@ -24,7 +24,7 @@ public:
     // Oublie tout (nouveau jeu, sauvegarde rechargée...).
     void reset();
     // Ajoute la photo de l'image qui vient d'être calculée.
-    void push(const std::string& state);
+    void push(std::string state);
     // Recule d'une image : renvoie la photo précédente (false s'il n'y en a plus).
     bool pop(std::string& out);
 

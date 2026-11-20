@@ -54,16 +54,25 @@
     X(PFNGLUNIFORM1IPROC, Uniform1i)                           \
     X(PFNGLUNIFORM1FPROC, Uniform1f)                           \
     X(PFNGLUNIFORM2FPROC, Uniform2f)                           \
+    X(PFNGLBINDBUFFERPROC, BindBuffer)
+
+// Celles qu'OpenGL ES 2.0 n'a pas (vieux boîtiers TV : GPU Mali-450...) :
+// avec un contexte ES 2 (gl::es2), elles restent à nullptr et le code fait
+// sans (pas de VAO, pas de "sampler", dessin avec un shader au lieu d'une copie).
+#define GL_FUNCTION_LIST_GL3(X)                                \
     X(PFNGLGENVERTEXARRAYSPROC, GenVertexArrays)               \
     X(PFNGLBINDVERTEXARRAYPROC, BindVertexArray)               \
     X(PFNGLDELETEVERTEXARRAYSPROC, DeleteVertexArrays)         \
     X(PFNGLBINDSAMPLERPROC, BindSampler)                       \
-    X(PFNGLBINDBUFFERPROC, BindBuffer)                         \
     X(PFNGLBLITFRAMEBUFFERPROC, BlitFramebuffer)
 
 // [C++] Les fonctions sont rangées dans un "namespace" : on écrit
 // gl::CreateShader(...), ce qui évite tout conflit de noms.
 namespace gl {
+
+// Vrai quand la fenêtre n'a pu avoir qu'OpenGL ES 2.0 (Android seulement :
+// les GPU Mali-400/450 des boîtiers TV d'entrée de gamme, comme la Mi Box 4).
+inline bool es2 = false;
 
 // [C++] "inline" sur une variable globale (C++17) : on peut la définir dans
 // un .hpp inclus par plusieurs .cpp sans erreur "symbole défini deux fois".
@@ -74,6 +83,7 @@ namespace gl {
 #define GLFN_DECLARE(type, name) inline type name = nullptr;
 #endif
 GL_FUNCTION_LIST(GLFN_DECLARE)
+GL_FUNCTION_LIST_GL3(GLFN_DECLARE)
 #undef GLFN_DECLARE
 
 // Remplit tous les pointeurs. Un contexte OpenGL doit être actif.
@@ -88,6 +98,14 @@ inline bool load()
     }
     GL_FUNCTION_LIST(GLFN_LOAD)
 #undef GLFN_LOAD
+#define GLFN_LOAD_GL3(type, name)                                              \
+    name = es2 ? nullptr : reinterpret_cast<decltype(name)>(SDL_GL_GetProcAddress("gl" #name)); \
+    if (!name && !es2) {                                                     \
+        SDL_Log("Fonction OpenGL absente : gl%s", #name);                    \
+        ok = false;                                                          \
+    }
+    GL_FUNCTION_LIST_GL3(GLFN_LOAD_GL3)
+#undef GLFN_LOAD_GL3
     return ok;
 }
 

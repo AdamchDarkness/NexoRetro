@@ -57,7 +57,7 @@ unsigned Covers::createTexture(const uint8_t* rgba, int width, int height)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glTexImage2D(GL_TEXTURE_2D, 0, gl::es2 ? GLint(GL_RGBA) : GLint(GL_RGBA8), width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
     return id;
 }
 
@@ -151,7 +151,7 @@ const Covers::Texture* Covers::texture(const std::string& file, int maxSize) con
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tex.width, tex.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, gl::es2 ? GLint(GL_RGBA) : GLint(GL_RGBA8), tex.width, tex.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     glBindTexture(GL_TEXTURE_2D, 0);
     stbi_image_free(pixels);
     return &(m_textures[file] = tex);
