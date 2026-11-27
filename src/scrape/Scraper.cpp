@@ -1,6 +1,7 @@
 #include "Scraper.hpp"
 
 #include "../Hash.hpp"
+#include "../Json.hpp"
 #include "../PortablePath.hpp"
 #include "../UserData.hpp"
 #include "../Utf8.hpp"
@@ -25,6 +26,14 @@ namespace {
 
 constexpr const char* kDatabaseUrl = "https://raw.githubusercontent.com/libretro/libretro-database/master/rdb/";
 constexpr const char* kThumbnailsUrl = "https://thumbnails.libretro.com/";
+// Les mêmes images, rangées dans un dépôt GitHub par console : le secours
+// quand le serveur de libretro ne répond plus (il est resté vide plusieurs
+// jours en novembre 2026 : plus aucune jaquette ne se téléchargeait).
+constexpr const char* kGithubThumbnailsUrl = "https://raw.githubusercontent.com/libretro-thumbnails/";
+constexpr const char* kGithubApiUrl = "https://api.github.com/repos/libretro-thumbnails/";
+// Jeux reconnus sans jaquette pendant cette panne : on les retente une fois.
+constexpr long long kOutageStart = 1793491200; // 1er novembre 2026
+constexpr long long kOutageEnd = 1796256000;   // 1er décembre 2026
 constexpr const char* kCheatsUrl = "https://raw.githubusercontent.com/libretro/libretro-database/master/cht/";
 constexpr int kRefreshDays = 30;                      // bases et listes : retéléchargées tous les 30 jours
 constexpr std::uintmax_t kMaxCrcSize = 512ull << 20;  // au-delà, pas de CRC (trop long à lire)
@@ -205,6 +214,45 @@ bool writeFile(const fs::path& file, const std::string& bytes)
     return !ec;
 }
 
+// Le dépôt GitHub d'une console : "Sony - PlayStation 2" -> "Sony_-_PlayStation_2".
+std::string githubRepo(const std::string& system)
+{
+    std::string repo = system;
+    for (char& c : repo)
+        if (c == ' ')
+            c = '_';
+    return repo;
+}
+
+bool isPng(const std::string& bytes)
+{
+    return bytes.size() >= 8 && std::memcmp(bytes.data(), "\x89PNG\r\n\x1a\n", 8) == 0;
+}
+
+// "Named_Boxarts/../Named_Boxarts/X.png" -> "Named_Boxarts/X.png".
+std::string normalizePath(const std::string& path)
+{
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start <= path.size()) {
+        size_t end = path.find('/', start);
+        if (end == std::string::npos)
+            end = path.size();
+        const std::string part = path.substr(start, end - start);
+        if (part == "..") {
+            if (!parts.empty())
+                parts.pop_back();
+        } else if (!part.empty() && part != ".") {
+            parts.push_back(part);
+        }
+        start = end + 1;
+    }
+    std::string out;
+    for (const std::string& part : parts)
+        out += (out.empty() ? "" : "/") + part;
+    return out;
+}
+
 std::string readFile(const fs::path& file)
 {
     std::ifstream in(file, std::ios::binary);
@@ -251,6 +299,95 @@ struct Scraper::Cache {
     std::map<std::string, std::unique_ptr<GameDatabase>> databases; // nullptr = indisponible
     std::map<std::string, std::unique_ptr<Listing>> listings;
     bool networkError = false; // le dernier téléchargement a échoué faute de réseau
+    bool serverDown = false;   // le serveur d'images de libretro ne répond plus : GitHub directement
+
+    // Une image (jaquette, capture, écran-titre) : du serveur de libretro,
+    // sinon du dépôt GitHub qui en garde une copie.
+    bool fetchImage(const std::string& system, const char* type, const std::string& name, const fs::path& file,
+                    const std::atomic<bool>& stop)
+    {
+        std::error_code ec;
+        if (fs::exists(file, ec))
+            return true;
+        if (!serverDown) {
+            const net::HttpResponse r =
+                http.get(kThumbnailsUrl + net::urlEncode(system) + "/" + type + "/" + net::urlEncode(name) + ".png", &stop);
+            if (r.ok() && isPng(r.body)) {
+                networkError = false;
+                return writeFile(file, r.body);
+            }
+            if (r.status == 0) {
+                networkError = true;
+                return false;
+            }
+        }
+        // Absente du serveur (ou serveur en panne) : on essaie GitHub.
+        std::string path = std::string(type) + "/" + name + ".png";
+        for (int hop = 0; hop < 3 && !stop; ++hop) {
+            std::string url = kGithubThumbnailsUrl + githubRepo(system) + "/master/";
+            size_t start = 0;
+            for (size_t slash; (slash = path.find('/', start)) != std::string::npos; start = slash + 1)
+                url += net::urlEncode(path.substr(start, slash - start)) + "/";
+            url += net::urlEncode(path.substr(start));
+            const net::HttpResponse r = http.get(url, &stop);
+            if (!r.ok()) {
+                networkError = r.status == 0;
+                return false;
+            }
+            networkError = false;
+            if (isPng(r.body)) {
+                if (!serverDown) {
+                    // Le serveur n'avait pas l'image mais GitHub si : il est
+                    // sans doute en panne, on ne le demande plus.
+                    serverDown = true;
+                    SDL_Log("Scraper : serveur d'images libretro indisponible, images prises sur GitHub");
+                }
+                return writeFile(file, r.body);
+            }
+            // Un "lien" Git (même image sous un autre nom) : le fichier
+            // contient le chemin de la vraie image, relatif à son dossier.
+            if (r.body.size() > 300 || r.body.empty())
+                return false;
+            path = normalizePath(path.substr(0, path.rfind('/') + 1) + r.body);
+        }
+        return false;
+    }
+
+    // La liste des jaquettes d'une console, lue dans son dépôt GitHub
+    // (deux questions à l'API de GitHub, puis gardée 30 jours).
+    std::vector<std::string> githubListing(const std::string& system, const std::atomic<bool>& stop)
+    {
+        std::vector<std::string> names;
+        const std::string repo = kGithubApiUrl + githubRepo(system) + "/git/trees/";
+        net::HttpResponse r = http.get(repo + "master", &stop);
+        json::Value root;
+        if (!r.ok() || !json::Parser(r.body).parse(root)) {
+            if (r.status == 0)
+                networkError = true;
+            SDL_Log("Scraper : liste GitHub de \"%s\" indisponible (%d)", system.c_str(), r.status);
+            return names;
+        }
+        std::string sha;
+        if (const json::Value* tree = root.get("tree"))
+            for (const json::Value& item : tree->items)
+                if (item.string("path") == "Named_Boxarts")
+                    sha = item.string("sha");
+        if (sha.empty())
+            return names;
+        r = http.get(repo + sha, &stop);
+        json::Value folder;
+        if (!r.ok() || !json::Parser(r.body).parse(folder))
+            return names;
+        if (const json::Value* tree = folder.get("tree"))
+            for (const json::Value& item : tree->items) {
+                std::string name = item.string("path");
+                if (name.size() > 4 && name.compare(name.size() - 4, 4, ".png") == 0 && item.string("type") == "blob") {
+                    name.resize(name.size() - 4);
+                    names.push_back(std::move(name));
+                }
+            }
+        return names;
+    }
 
     // Télécharge url dans file, sauf si une copie récente existe déjà.
     // En cas d'échec, une ancienne copie fait l'affaire.
@@ -298,14 +435,27 @@ struct Scraper::Cache {
         // plus petit que la page HTML du serveur.
         const fs::path file = dir / "lists" / fromUtf8(system + ".txt");
         if (!isFresh(file, kRefreshDays)) {
-            const net::HttpResponse r = http.get(kThumbnailsUrl + net::urlEncode(system) + "/Named_Boxarts/", &stop);
-            if (r.ok()) {
+            std::vector<std::string> names;
+            if (!serverDown) {
+                const net::HttpResponse r = http.get(kThumbnailsUrl + net::urlEncode(system) + "/Named_Boxarts/", &stop);
+                if (r.ok())
+                    names = parseListing(r.body);
+                else if (r.status == 0)
+                    networkError = true;
+            }
+            // Serveur muet ou vide : la liste du dépôt GitHub.
+            if (names.empty() && !networkError) {
+                names = githubListing(system, stop);
+                if (!names.empty() && !serverDown) {
+                    serverDown = true;
+                    SDL_Log("Scraper : serveur d'images libretro indisponible, images prises sur GitHub");
+                }
+            }
+            if (!names.empty()) {
                 std::string text;
-                for (const std::string& n : parseListing(r.body))
+                for (const std::string& n : names)
                     text += n + '\n';
                 writeFile(file, text);
-            } else if (r.status == 0) {
-                networkError = true;
             }
         }
         std::unique_ptr<Listing> list;
@@ -384,9 +534,19 @@ void Scraper::request(const Game& game, bool force)
 
 void Scraper::requestMissing(const std::vector<Game>& games)
 {
-    for (const Game& g : games)
-        if (!m_infos.count(UserData::keyOf(g.path)))
+    for (const Game& g : games) {
+        const auto it = m_infos.find(UserData::keyOf(g.path));
+        if (it == m_infos.end()) {
             request(g);
+        } else if (it->second.status == GameInfo::Status::Found && it->second.boxart.empty() &&
+                   it->second.time >= kOutageStart && it->second.time < kOutageEnd) {
+            // Reconnu pendant la panne du serveur d'images : on retente
+            // (une fois par lancement de l'appli).
+            static std::unordered_set<std::string> retried;
+            if (retried.insert(it->first).second)
+                request(g, true);
+        }
+    }
 }
 
 int Scraper::pending() const
@@ -732,8 +892,7 @@ GameInfo Scraper::scrapeGame(const Job& job)
         // Les trois sortes d'images portent le même nom.
         auto download = [&](const char* type) -> std::string {
             const fs::path file = imageFile(m_dir, system, type, name);
-            const std::string url = kThumbnailsUrl + net::urlEncode(system) + "/" + type + "/" + net::urlEncode(name) + ".png";
-            return cache.fetch(url, file, 0, m_stop) ? toUtf8(file) : std::string();
+            return cache.fetchImage(system, type, name, file, m_stop) ? toUtf8(file) : std::string();
         };
         info.boxart = download("Named_Boxarts");
         info.snap = download("Named_Snaps");
@@ -764,8 +923,7 @@ void Scraper::searchCoversJob(const Job& job)
                 return;
             const std::string& name = listing->index.name(i);
             const fs::path file = imageFile(m_dir, system, "Named_Boxarts", name);
-            const std::string url = kThumbnailsUrl + net::urlEncode(system) + "/Named_Boxarts/" + net::urlEncode(name) + ".png";
-            if (cache.fetch(url, file, 0, m_stop)) {
+            if (cache.fetchImage(system, "Named_Boxarts", name, file, m_stop)) {
                 post({.kind = Result::Kind::Cover, .choice = {name, toUtf8(file)}, .searchId = job.searchId});
                 ++found;
             }
@@ -787,7 +945,8 @@ std::string boxartUrl(const GameInfo& info)
     const std::string system = toUtf8(file.parent_path().parent_path().filename());
     if (name.size() > 80 || system.empty())
         return {};
-    return kThumbnailsUrl + net::urlEncode(system) + "/Named_Boxarts/" + net::urlEncode(name) + ".png";
+    // (Le dépôt GitHub plutôt que le serveur de libretro : il répond toujours.)
+    return kGithubThumbnailsUrl + githubRepo(system) + "/master/Named_Boxarts/" + net::urlEncode(name) + ".png";
 }
 
 } // namespace scrape
